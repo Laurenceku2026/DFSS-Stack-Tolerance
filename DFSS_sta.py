@@ -22,10 +22,12 @@ st.markdown("""
     .ppm-table { border-collapse: collapse; width: 100%; margin: 0 auto; }
     .ppm-table th, .ppm-table td { border: 2px solid #000000; padding: 10px 16px; text-align: center; font-size: 1rem; }
     .ppm-table th { background-color: #e9ecef; font-weight: 600; }
-    .stButton button { background-color: #3498db; color: white; font-weight: 500; border-radius: 5px; }
+    .stButton button { background-color: #3498db; color: white; font-weight: 500; border-radius: 5px; font-size: 1.1rem; }  /* 按钮字体变大 */
     .stButton button:hover { background-color: #2980b9; }
     .design-value-card { background-color: #e8f4fd; border-radius: 10px; padding: 15px; margin-top: 15px; text-align: center; border-left: 5px solid #3498db; }
-    .big-label { font-size: 1.2rem; font-weight: 500; margin-bottom: 5px; }
+    .design-value-card strong { font-size: 1.1rem; }
+    .design-value-number { font-size: 1.6rem; font-weight: 600; color: #1f3a93; margin-top: 5px; }  /* 设计值数字变大 */
+    .big-label { font-size: 1.4rem; font-weight: 500; margin-bottom: 5px; }  /* 设计变量名称标签变大 */
     .param-letter { font-weight: bold; font-size: 1rem; text-align: center; background-color: #e9ecef; border-radius: 4px; padding: 6px 0; width: 40px; }
     .formula-hint { font-size: 0.9rem; color: #6c757d; margin-bottom: 5px; }
 </style>
@@ -300,10 +302,10 @@ def generate_report(raw, usl, lsl, n_sim, seed, formula, params_df, param_letter
     def fmt(val): return f"{val:.2f}" if val is not None else "-"
     stats_html = f"""
     <table class="dataframe stats-table">
-        <tr><th>统计量</th><th>数值</th><tr>
+        <tr><th>统计量</th><th>数值</th></tr>
         <tr><td>均值</td><td>{raw['mean']:.2f}</td></tr>
         <tr><td>标准差</td><td>{raw['std']:.2f}</td></tr>
-        <tr><td>最大值</td><td>{raw['max']:.2f}</td></tr>
+        <tr><td>最大值</th><td>{raw['max']:.2f}</td></tr>
         <tr><td>最小值</td><td>{raw['min']:.2f}</td></tr>
     </table>
     """
@@ -395,7 +397,7 @@ def main():
     st.session_state.params = pd.DataFrame(new_params)
     update_param_letters()
 
-    # ================= 公式定义区域（提示文字单行，公式框全宽） =================
+    # ================= 公式定义区域 =================
     st.markdown('<div class="section-header">📐 公式定义（设计值）</div>', unsafe_allow_html=True)
     output_name = st.text_input("📌 设计变量名称", value=st.session_state.output_name, key="output_name_input")
     st.session_state.output_name = output_name if output_name.strip() else "Output"
@@ -406,12 +408,13 @@ def main():
     st.session_state.formula = formula
     st.caption("支持的运算: + - * / **, 括号, 函数: sqrt, exp, log, sin, cos, tan, pi, e 等。公式中的空格会被自动优化。")
 
-    # 实时计算设计值
+    # 实时计算设计值（字体已通过CSS放大）
     design_val = compute_design_value(st.session_state.params, formula, st.session_state.param_letters)
     if design_val is not None and not np.isnan(design_val):
         st.markdown(f"""
         <div class="design-value-card">
-            <strong>📌 当前设计值（基于均值）:</strong> {output_name} = {design_val:.6f}
+            <strong>📌 当前设计值（基于均值）:</strong><br>
+            <span class="design-value-number">{output_name} = {design_val:.6f}</span>
         </div>
         """, unsafe_allow_html=True)
     else:
