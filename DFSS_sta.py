@@ -298,13 +298,13 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # 语言切换按钮（横向排列，红底白字）
-col_lang1, col_lang2, col_lang3 = st.columns([0.85, 0.07, 0.08])
+col_lang1, col_lang2, col_lang3 = st.columns([0.7, 0.15, 0.15])
 with col_lang2:
-    if st.button("中文", key="lang_zh"):
+    if st.button("中文", key="lang_zh", use_container_width=True):
         st.session_state.lang = "zh"
         st.rerun()
 with col_lang3:
-    if st.button("English", key="lang_en"):
+    if st.button("English", key="lang_en", use_container_width=True):
         st.session_state.lang = "en"
         st.rerun()
 
