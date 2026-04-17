@@ -26,9 +26,8 @@ st.markdown("""
     .stButton button:hover { background-color: #2980b9; }
     .design-value-card { background-color: #e8f4fd; border-radius: 10px; padding: 15px; margin-top: 15px; text-align: center; border-left: 5px solid #3498db; }
     .big-label { font-size: 1.2rem; font-weight: 500; margin-bottom: 5px; }
-    .formula-hint { font-size: 0.9rem; color: #6c757d; margin-top: 5px; text-align: right; }
-    .param-row { margin-bottom: 8px; display: flex; align-items: center; gap: 10px; }
     .param-letter { font-weight: bold; font-size: 1rem; text-align: center; background-color: #e9ecef; border-radius: 4px; padding: 6px 0; width: 40px; }
+    .formula-hint { font-size: 0.9rem; color: #6c757d; margin-bottom: 5px; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -301,7 +300,7 @@ def generate_report(raw, usl, lsl, n_sim, seed, formula, params_df, param_letter
     def fmt(val): return f"{val:.2f}" if val is not None else "-"
     stats_html = f"""
     <table class="dataframe stats-table">
-        <tr><th>统计量</th><th>数值</th></tr>
+        <tr><th>统计量</th><th>数值</th><tr>
         <tr><td>均值</td><td>{raw['mean']:.2f}</td></tr>
         <tr><td>标准差</td><td>{raw['std']:.2f}</td></tr>
         <tr><td>最大值</td><td>{raw['max']:.2f}</td></tr>
@@ -386,33 +385,25 @@ def main():
         rows_data.append((name, mean_val, std_val, dist_val, delete, letter))
 
     # 处理删除和添加
-    # 先收集未被删除的行
     new_params = []
     for i, (name, mean_val, std_val, dist_val, delete, letter) in enumerate(rows_data):
         if not delete:
             new_params.append({"参数名称": name, "均值(Typ)": mean_val, "标准差(Std)": std_val, "分布": dist_val})
-    # 添加新行按钮
     if st.button("➕ 添加参数行", use_container_width=True):
         new_params.append({"参数名称": "新参数", "均值(Typ)": 0.0, "标准差(Std)": 0.0, "分布": "正态分布"})
 
-    # 更新 DataFrame
     st.session_state.params = pd.DataFrame(new_params)
-    # 更新字母映射
     update_param_letters()
 
-    # ================= 公式定义区域 =================
+    # ================= 公式定义区域（提示文字单行，公式框全宽） =================
     st.markdown('<div class="section-header">📐 公式定义（设计值）</div>', unsafe_allow_html=True)
     output_name = st.text_input("📌 设计变量名称", value=st.session_state.output_name, key="output_name_input")
     st.session_state.output_name = output_name if output_name.strip() else "Output"
 
-    # 计算公式区域，将提示放在右侧
-    col_formula, col_hint = st.columns([2, 1])
-    with col_formula:
-        st.markdown('<span class="big-label">📝 计算公式</span>', unsafe_allow_html=True)
-        formula = st.text_area("", value=st.session_state.formula, height=100, key="formula_input", label_visibility="collapsed")
-        st.session_state.formula = formula
-    with col_hint:
-        st.markdown('<div class="formula-hint">💡 可直接在公式中使用字母（A, B, C...）代表对应参数，系统将自动识别。<br>例如：A*E*7/1000*60/(B+C+D)</div>', unsafe_allow_html=True)
+    st.markdown('<span class="big-label">📝 计算公式</span>', unsafe_allow_html=True)
+    st.markdown('<div class="formula-hint">💡 可直接在公式中使用字母（A, B, C...）代表对应参数，系统将自动识别。例如：A*E*7/1000*60/(B+C+D)</div>', unsafe_allow_html=True)
+    formula = st.text_area("", value=st.session_state.formula, height=100, key="formula_input", label_visibility="collapsed")
+    st.session_state.formula = formula
     st.caption("支持的运算: + - * / **, 括号, 函数: sqrt, exp, log, sin, cos, tan, pi, e 等。公式中的空格会被自动优化。")
 
     # 实时计算设计值
