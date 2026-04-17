@@ -3,15 +3,6 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-import matplotlib.font_manager as fm
-
-# 查找系统中支持中文的字体
-chinese_fonts = [font.name for font in fm.fontManager.ttflist if 'CJK' in font.name or 'Hei' in font.name or 'SimHei' in font.name or 'WenQuanYi' in font.name]
-if chinese_fonts:
-    plt.rcParams['font.sans-serif'] = [chinese_fonts[0]]
-else:
-    plt.rcParams['font.sans-serif'] = ['DejaVu Sans']  # 回退到英文
-plt.rcParams['axes.unicode_minus'] = False
 from scipy import stats
 import math
 import re
@@ -74,7 +65,6 @@ DISTRIBUTIONS = [
     "三角分布"
 ]
 
-# 辅助函数：更新字母映射
 def update_param_letters():
     letters = [chr(ord('A') + i) for i in range(len(st.session_state.params))]
     st.session_state.param_letters = {
@@ -135,16 +125,13 @@ def safe_eval_with_mapping(expr: str, param_names: List[str], context_values: Li
 def compute_design_value(params_df: pd.DataFrame, formula: str, param_letters: Dict[str, str]) -> Optional[float]:
     param_names = params_df["参数名称"].astype(str).tolist()
     means = params_df["均值(Typ)"].values.astype(float)
-    # 设计值使用均值，不考虑分布
     val = safe_eval_with_mapping(formula, param_names, means, param_letters)
     return val if not np.isnan(val) else None
 
-# 根据分布类型和参数生成随机样本
 def generate_sample(dist: str, mean: float, std: float, dist_params: Dict, size: int = 1) -> np.ndarray:
     if dist == "正态分布（完整）":
         return np.random.normal(mean, std, size)
     elif dist == "正态分布（正值）":
-        # 截断正态，下限0，上限无穷
         a, b = (0 - mean) / std if std > 0 else -np.inf, np.inf
         if std == 0:
             return np.full(size, max(mean, 0))
@@ -258,7 +245,6 @@ def sensitivity_analysis(params_df: pd.DataFrame, formula: str, n_sim: int, para
     return df_contrib, contributions, param_names
 
 def plot_pdf(dist: str, mean: float, std: float, dist_params: Dict, ax):
-    """在给定的 ax 上绘制概率密度函数简图"""
     if dist == "正态分布（完整）":
         x = np.linspace(mean - 4*std, mean + 4*std, 200)
         y = stats.norm.pdf(x, mean, std)
@@ -266,7 +252,6 @@ def plot_pdf(dist: str, mean: float, std: float, dist_params: Dict, ax):
         ax.fill_between(x, y, alpha=0.3)
         ax.set_title(f"N(μ={mean:.1f}, σ={std:.2f})", fontsize=8)
     elif dist == "正态分布（正值）":
-        # 截断正态
         a, b = (0 - mean) / std if std > 0 else -np.inf, np.inf
         if std == 0:
             x = [max(mean, 0)]
@@ -321,8 +306,8 @@ def plot_pdf(dist: str, mean: float, std: float, dist_params: Dict, ax):
         ax.plot(x, y, 'olive')
         ax.fill_between(x, y, alpha=0.3)
         ax.set_title(f"Tri({left:.1f}, {mode:.1f}, {right:.1f})", fontsize=8)
-    ax.set_xlabel("值", fontsize=6)
-    ax.set_ylabel("密度", fontsize=6)
+    ax.set_xlabel("Value", fontsize=6)
+    ax.set_ylabel("Density", fontsize=6)
     ax.tick_params(axis='both', labelsize=6)
 
 def plot_histogram(results, bin_centers, hist_counts, x_pdf, pdf_theory, usl, lsl, output_name, n_sim):
@@ -347,8 +332,8 @@ def plot_contribution_horizontal(contributions: List[float], param_names: List[s
     non_zero = [(p, c) for p, c in zip(param_names, contributions) if c > 0]
     if not non_zero:
         fig, ax = plt.subplots(figsize=(8, 4))
-        ax.text(0.5, 0.5, "无显著贡献", ha='center', va='center')
-        ax.set_title(f"{output_name} 设计参数影响百分比")
+        ax.text(0.5, 0.5, "No significant contribution", ha='center', va='center')
+        ax.set_title(f"Design Factor Effect % on {output_name}", fontsize=13, fontweight='bold')
         return fig
     names, vals = zip(*non_zero)
     sorted_indices = np.argsort(vals)
@@ -358,8 +343,8 @@ def plot_contribution_horizontal(contributions: List[float], param_names: List[s
     bars = ax.barh(names, vals, color='#2ecc71')
     for bar, val in zip(bars, vals):
         ax.text(val + 0.01, bar.get_y() + bar.get_height()/2, f'{val:.1%}', va='center', fontsize=9)
-    ax.set_xlabel("影响百分比", fontsize=11)
-    ax.set_title(f"{output_name} 设计参数影响百分比", fontsize=13, fontweight='bold')
+    ax.set_xlabel("Effect %", fontsize=11)
+    ax.set_title(f"Design Factor Effect % on {output_name}", fontsize=13, fontweight='bold')
     ax.set_xlim(0, max(vals) * 1.15)
     ax.grid(axis='x', linestyle='--', alpha=0.5)
     ax.legend().remove()
@@ -438,16 +423,16 @@ def generate_report(raw, usl, lsl, n_sim, seed, formula, params_df, param_letter
     <table class="dataframe stats-table">
         <tr><th>统计量</th><th>数值</th></tr>
         <tr><td>均值</th><td>{raw['mean']:.2f}</td></tr>
-        <tr><td>标准差</td><td>{raw['std']:.2f}</td></tr>
-        <tr><td>最大值</td><td>{raw['max']:.2f}</td></tr>
-        <tr><td>最小值</td><td>{raw['min']:.2f}</td></tr>
+        <tr><td>标准差</th><td>{raw['std']:.2f}</td></tr>
+        <tr><td>最大值</th><td>{raw['max']:.2f}</td></tr>
+        <tr><td>最小值</th><td>{raw['min']:.2f}</td>
     </table>
     """
     if cpk is not None:
         stats_html += f"""
         <table class="dataframe stats-table">
             <tr><th>Cpk</th><th>Failure All (ppm)</th><th>Failure Up (ppm)</th><th>Failure Dn (ppm)</th></tr>
-            <tr><td>{fmt(cpk)}</td><td>{fmt(failures_all)}</td><td>{fmt(failures_up)}</td><td>{fmt(failures_dn)}</td></tr>
+            <tr><td>{fmt(cpk)}</td><td>{fmt(failures_all)}</td><td>{fmt(failures_up)}</td><td>{fmt(failures_dn)}</td>
         </table>
         """
     report_html = f"""
@@ -489,7 +474,6 @@ def main():
         st.session_state.lsl_str = lsl_sidebar
         seed = st.number_input("随机种子", value=42, step=1)
 
-    # 参数输入表格（带分布选择、行内展开区域）
     st.markdown('<div class="section-header">📝 参数输入</div>', unsafe_allow_html=True)
 
     # 表头
@@ -501,9 +485,7 @@ def main():
     header_cols[4].markdown("**分布**")
     header_cols[5].markdown("**删除**")
 
-    # 存储每行的临时值
     rows_data = []
-    # 用于记录每一行的展开状态（由分布决定是否自动展开）
     for idx, row in st.session_state.params.iterrows():
         letter = chr(ord('A') + idx)
         cols = st.columns([0.3, 1.5, 1, 1, 1.2, 0.3])
@@ -520,15 +502,12 @@ def main():
         with cols[5]:
             delete = st.button("🗑️", key=f"del_{idx}")
 
-        # 获取当前存储的分布参数
         current_dist_params = row.get("分布参数", {}) if isinstance(row.get("分布参数"), dict) else {}
-        # 根据选择的分布，初始化默认参数（如果尚未有）
         if dist_val in ["均匀分布", "对数正态分布", "威布尔分布", "三角分布"]:
             if dist_val == "均匀分布" and "low" not in current_dist_params:
                 current_dist_params["low"] = mean_val - 3 * std_val
                 current_dist_params["high"] = mean_val + 3 * std_val
             elif dist_val == "对数正态分布" and "mean_log" not in current_dist_params:
-                # 默认对数均值和标准差
                 current_dist_params["mean_log"] = 0.0
                 current_dist_params["sigma_log"] = 1.0
             elif dist_val == "威布尔分布" and "shape" not in current_dist_params:
@@ -539,7 +518,6 @@ def main():
                 current_dist_params["mode"] = mean_val
                 current_dist_params["right"] = mean_val + 3 * std_val
 
-        # 行内展开区域（如果需要额外参数）
         need_expand = dist_val in ["均匀分布", "对数正态分布", "威布尔分布", "三角分布"]
         if need_expand:
             with st.expander(f"⚙️ 配置 {dist_val} 参数", expanded=True):
@@ -578,7 +556,6 @@ def main():
                         current_dist_params["mode"] = mode
                         current_dist_params["right"] = right
 
-                # 显示 PDF 简图
                 fig, ax = plt.subplots(figsize=(4, 2))
                 plot_pdf(dist_val, mean_val, std_val, current_dist_params, ax)
                 st.pyplot(fig)
@@ -586,7 +563,6 @@ def main():
 
         rows_data.append((name, mean_val, std_val, dist_val, current_dist_params, delete, letter))
 
-    # 处理删除和添加
     new_params = []
     for (name, mean_val, std_val, dist_val, dist_params, delete, letter) in rows_data:
         if not delete:
@@ -609,7 +585,6 @@ def main():
     st.session_state.params = pd.DataFrame(new_params)
     update_param_letters()
 
-    # 公式定义区域
     st.markdown('<div class="section-header">📐 公式定义（设计值）</div>', unsafe_allow_html=True)
 
     st.markdown('<span class="big-label">📌 设计变量名称</span>', unsafe_allow_html=True)
@@ -633,7 +608,6 @@ def main():
     else:
         st.warning("公式无效或参数不匹配，无法计算设计值。请检查公式中的字母是否与上方对应关系一致，并确保运算正确。")
 
-    # 大按钮居中
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         if st.button("开始\n蒙特卡洛模拟", type="primary", use_container_width=True):
@@ -676,7 +650,6 @@ def main():
                 "formula": formula,
             }
 
-    # 显示结果
     if st.session_state.sim_results_raw is not None:
         raw = st.session_state.sim_results_raw
         results = raw["results"]
@@ -716,19 +689,23 @@ def main():
                 st.markdown(f"""
                 <table class="ppm-table">
                     <tr><th>CPK</th><th>Failure All</th><th>Failure Up</th><th>Failure Dn</th></tr>
-                    <tr><td>{fmt(cpk)}</td><td>{fmt(failures_all)}</td><td>{fmt(failures_up)}</td><td>{fmt(failures_dn)}</td></tr>
+                    <tr><td>{fmt(cpk)}</td><td>{fmt(failures_all)}</td><td>{fmt(failures_up)}</td><td>{fmt(failures_dn)}</td>
                 </table>
                 """, unsafe_allow_html=True)
             else:
                 st.info("未提供任何规格限，无法计算CPK和PPM。")
 
-        st.markdown('<div class="section-header">分布直方图</div>', unsafe_allow_html=True)
+        # 分布直方图 - 外部添加中文标题和横轴说明
+        st.markdown(f"### {output_name} 分布直方图")
         fig_hist = plot_histogram(results, raw["bin_centers"], raw["hist_counts"], raw["x_pdf"], raw["pdf_theory"], usl, lsl, output_name, n_sim)
         st.pyplot(fig_hist)
+        st.caption(f"横轴：{output_name}   |   纵轴：频次")
 
-        st.markdown(f'<div class="section-header">设计参数对 {output_name} 影响百分比</div>', unsafe_allow_html=True)
+        # 设计参数影响百分比 - 外部添加中文标题和横轴说明
+        st.markdown(f"### {output_name} 设计参数影响百分比")
         fig_barh = plot_contribution_horizontal(raw["contributions"], raw["param_names"], output_name)
         st.pyplot(fig_barh)
+        st.caption("横轴：影响百分比   |   纵轴：设计参数")
 
         with st.expander("查看贡献百分比数据表"):
             st.dataframe(raw["df_contrib"][["参数", "贡献百分比_显示"]].rename(columns={"贡献百分比_显示": "贡献百分比"}), use_container_width=True)
