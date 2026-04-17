@@ -8,7 +8,7 @@ import math
 import re
 import base64
 from io import BytesIO
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any, Tuple, Optional
 
 st.set_page_config(page_title="Para_Variation - 蒙特卡洛模拟", layout="wide")
 st.title("📊 Para_Variation - 基于蒙特卡洛模拟分析")
@@ -32,12 +32,13 @@ if "formula" not in st.session_state:
 if "output_name" not in st.session_state:
     st.session_state.output_name = "Runtime"
 
+# 规格限相关，初始 None 表示未启用
+if "use_limits" not in st.session_state:
+    st.session_state.use_limits = True
 if "usl" not in st.session_state:
     st.session_state.usl = 40.0
 if "lsl" not in st.session_state:
     st.session_state.lsl = 30.0
-if "use_spec" not in st.session_state:
-    st.session_state.use_spec = True  # 是否使用规格限
 
 # ---------- 上下限双向同步回调函数 ----------
 def sync_usl_from_main():
@@ -48,6 +49,10 @@ def sync_usl_from_sidebar():
     st.session_state.usl = st.session_state.usl_sidebar
 def sync_lsl_from_sidebar():
     st.session_state.lsl = st.session_state.lsl_sidebar
+def sync_use_limits_from_main():
+    st.session_state.use_limits = st.session_state.main_use_limits
+def sync_use_limits_from_sidebar():
+    st.session_state.use_limits = st.session_state.sidebar_use_limits
 
 # 回调函数：追加参数名到公式
 def append_param(param_name: str):
@@ -160,40 +165,36 @@ def sensitivity_analysis(params_df: pd.DataFrame,
         "贡献百分比": contributions
     })
     df_contrib = df_contrib.sort_values("贡献百分比", ascending=False).reset_index(drop=True)
-    df_contrib["贡献百分比_显示"] = df_contrib["贡献百分比"].apply(lambda x: f"{x:.6%}")
+    df_contrib["贡献百分比_显示"] = df_contrib["贡献百分比"].apply(lambda x: f"{x:.1%}")  # 一位小数
     return df_contrib, contributions, param_names
 
-# 绘图函数：直方图（右上角添加统计信息框）
-def plot_histogram(results, bin_centers, hist_counts, x_pdf, pdf_theory, usl, lsl, output_name, n_sim, use_spec):
+# 绘图函数：直方图（右上角统计信息，图例放在下方）
+def plot_histogram(results, bin_centers, hist_counts, x_pdf, pdf_theory, usl, lsl, output_name, use_limits, n_sim):
     fig, ax = plt.subplots(figsize=(10, 6))
     ax.bar(bin_centers, hist_counts, width=(bin_centers[1]-bin_centers[0])*0.9,
            alpha=0.6, label="Histogram", color="steelblue")
     bin_width = bin_centers[1] - bin_centers[0]
     area = np.sum(hist_counts) * bin_width
     ax.plot(x_pdf, pdf_theory * area, 'r-', linewidth=2, label="Gaussian Fitting")
-    
-    if use_spec:
+    if use_limits and usl is not None and lsl is not None:
         ax.axvline(usl, color='green', linestyle='--', label=f"USL = {usl:.2f}")
         ax.axvline(lsl, color='orange', linestyle='--', label=f"LSL = {lsl:.2f}")
-    
+
+    # 右上角统计信息文本框
+    stats_text = f"NO.={n_sim}\nAVE={np.mean(results):.6f}\nSTD={np.std(results, ddof=1):.6f}\nMAX={np.max(results):.6f}\nMIN={np.min(results):.6f}"
+    ax.text(0.95, 0.95, stats_text, transform=ax.transAxes, fontsize=9,
+            verticalalignment='top', horizontalalignment='right',
+            bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
+
+    # 图例放在右下角（统计信息下方）
+    ax.legend(loc='lower right', fontsize=9)
+
     ax.set_xlabel(output_name)
     ax.set_ylabel("Frequency")
     ax.set_title(f"{output_name} Distribution")
-    ax.legend(loc='upper right')
-    
-    # 在右上角添加统计信息框（仿附图）
-    mean_val = np.mean(results)
-    std_val = np.std(results, ddof=1)
-    max_val = np.max(results)
-    min_val = np.min(results)
-    stats_text = f"NO.={len(results)}\nAVE={mean_val:.4f}\nSTD={std_val:.4f}\nMAX={max_val:.4f}\nMIN={min_val:.4f}"
-    ax.text(0.95, 0.95, stats_text, transform=ax.transAxes,
-            verticalalignment='top', horizontalalignment='right',
-            bbox=dict(boxstyle='round', facecolor='white', alpha=0.8),
-            fontsize=9, family='monospace')
     return fig
 
-# 绘图函数：水平条形图（完全按照附图红色样式）
+# 绘图函数：水平条形图（无图例，百分比一位小数）
 def plot_contribution_horizontal(contributions: List[float], param_names: List[str], output_name: str):
     non_zero = [(p, c) for p, c in zip(param_names, contributions) if c > 0]
     if not non_zero:
@@ -202,20 +203,22 @@ def plot_contribution_horizontal(contributions: List[float], param_names: List[s
         ax.set_title(f"{output_name} 设计参数影响百分比")
         return fig
     names, vals = zip(*non_zero)
-    # 按贡献值升序排列（水平条形图从下往上）
     sorted_indices = np.argsort(vals)
     names = [names[i] for i in sorted_indices]
     vals = [vals[i] for i in sorted_indices]
 
     fig, ax = plt.subplots(figsize=(8, max(4, len(names)*0.4)))
     bars = ax.barh(names, vals, color='steelblue')
+    # 在条形末端显示一位小数百分比
     for bar, val in zip(bars, vals):
-        ax.text(val + 0.01, bar.get_y() + bar.get_height()/2, f'{val:.6%}',
+        ax.text(val + 0.01, bar.get_y() + bar.get_height()/2, f'{val:.1%}',
                 va='center', fontsize=9)
     ax.set_xlabel("影响百分比")
     ax.set_title(f"{output_name} 设计参数影响百分比")
     ax.set_xlim(0, max(vals) * 1.15)
     ax.grid(axis='x', linestyle='--', alpha=0.7)
+    # 移除图例（如果有）
+    ax.legend().remove() if ax.get_legend() else None
     return fig
 
 # 计算 CPK 和 PPM（基于已保存的结果数组）
@@ -231,17 +234,17 @@ def compute_cpk_ppm(results: np.ndarray, usl: float, lsl: float):
     failures_all = failures_up + failures_dn
     return cpk, failures_all, failures_up, failures_dn
 
-# 生成 HTML 报告
-def generate_report(raw, usl, lsl, n_sim, seed, formula, params_df, use_spec):
+# 生成 HTML 报告（略作调整，保持兼容）
+def generate_report(raw, usl, lsl, n_sim, seed, formula, params_df, use_limits):
     results = raw["results"]
     output_name = raw["output_name"]
-    if use_spec:
+    if use_limits and usl is not None and lsl is not None:
         cpk, failures_all, failures_up, failures_dn = compute_cpk_ppm(results, usl, lsl)
     else:
-        cpk, failures_all, failures_up, failures_dn = 0.0, 0.0, 0.0, 0.0
+        cpk = failures_all = failures_up = failures_dn = None
 
     fig_hist = plot_histogram(results, raw["bin_centers"], raw["hist_counts"],
-                              raw["x_pdf"], raw["pdf_theory"], usl, lsl, output_name, n_sim, use_spec)
+                              raw["x_pdf"], raw["pdf_theory"], usl, lsl, output_name, use_limits, n_sim)
     buf_hist = BytesIO()
     fig_hist.savefig(buf_hist, format="png", dpi=150, bbox_inches="tight")
     hist_b64 = base64.b64encode(buf_hist.getvalue()).decode()
@@ -256,7 +259,7 @@ def generate_report(raw, usl, lsl, n_sim, seed, formula, params_df, use_spec):
     plt.close(fig_barh)
 
     df_contrib = raw["df_contrib"].copy()
-    df_contrib["贡献百分比_显示"] = df_contrib["贡献百分比"].apply(lambda x: f"{x:.6%}")
+    df_contrib["贡献百分比_显示"] = df_contrib["贡献百分比"].apply(lambda x: f"{x:.1%}")
 
     samples_df = pd.DataFrame(raw["samples"], columns=param_names)
     samples_df[output_name] = results
@@ -294,28 +297,20 @@ def generate_report(raw, usl, lsl, n_sim, seed, formula, params_df, use_spec):
     </style>
     """
 
-    if use_spec:
-        stats_html = f"""
+    stats_html = f"""
+    <table class="dataframe stats-table">
+        <tr><th>统计量</th><th>数值</th></tr>
+        <tr><td>均值</td><td>{raw['mean']:.2f}</td></tr>
+        <tr><td>标准差</td><td>{raw['std']:.2f}</td></tr>
+        <tr><td>最大值</td><td>{raw['max']:.2f}</td></tr>
+        <tr><td>最小值</td><td>{raw['min']:.2f}</td></tr>
+    </table>
+    """
+    if use_limits and cpk is not None:
+        stats_html += f"""
         <table class="dataframe stats-table">
-            <tr><th>统计量</th><th>数值</th></tr>
-            <tr><td>均值</td><td>{raw['mean']:.2f}</td></tr>
-            <tr><td>标准差</td><td>{raw['std']:.2f}</td></tr>
-            <tr><td>最大值</td><td>{raw['max']:.2f}</td></tr>
-            <tr><td>最小值</td><td>{raw['min']:.2f}</td></tr>
-            <tr><td>Cpk</td><td>{cpk:.2f}</td></tr>
-            <tr><td>Failure All (ppm)</td><td>{failures_all:.2f}</td></tr>
-            <tr><td>Failure Up (ppm)</td><td>{failures_up:.2f}</td></tr>
-            <tr><td>Failure Dn (ppm)</td><td>{failures_dn:.2f}</td></tr>
-        </table>
-        """
-    else:
-        stats_html = f"""
-        <table class="dataframe stats-table">
-            <tr><th>统计量</th><th>数值</th></tr>
-            <tr><td>均值</td><td>{raw['mean']:.2f}</td></tr>
-            <tr><td>标准差</td><td>{raw['std']:.2f}</td></tr>
-            <tr><td>最大值</td><td>{raw['max']:.2f}</td></tr>
-            <tr><td>最小值</td><td>{raw['min']:.2f}</td></tr>
+            <tr><th>Cpk</th><th>Failure All (ppm)</th><th>Failure Up (ppm)</th><th>Failure Dn (ppm)</th></tr>
+            <tr><td>{cpk:.2f}</td><td>{failures_all:.2f}</td><td>{failures_up:.2f}</td><td>{failures_dn:.2f}</td></tr>
         </table>
         """
 
@@ -335,9 +330,6 @@ def generate_report(raw, usl, lsl, n_sim, seed, formula, params_df, use_spec):
                 <li><strong>输出变量名称：</strong> {output_name}</li>
                 <li><strong>公式：</strong> {formula}</li>
                 <li><strong>模拟次数：</strong> {n_sim}</li>
-                <li><strong>使用规格限：</strong> {"是" if use_spec else "否"}</li>
-                {f"<li><strong>规格上限 (USL)：</strong> {usl:.2f}</li>" if use_spec else ""}
-                {f"<li><strong>规格下限 (LSL)：</strong> {lsl:.2f}</li>" if use_spec else ""}
                 <li><strong>随机种子：</strong> {seed}</li>
             </ul>
         </div>
@@ -375,11 +367,18 @@ def generate_report(raw, usl, lsl, n_sim, seed, formula, params_df, use_spec):
 def main():
     st.sidebar.header("⚙️ 模拟设置")
     n_sim = st.sidebar.number_input("模拟次数 (Trail number)", min_value=100, max_value=100000, value=1000, step=100)
-    use_spec = st.sidebar.checkbox("使用规格限", value=st.session_state.use_spec, key="use_spec_sidebar")
-    st.session_state.use_spec = use_spec
-    if use_spec:
+
+    # 规格限启用复选框（侧边栏）
+    use_limits_sidebar = st.sidebar.checkbox("使用规格限", value=st.session_state.use_limits, key="sidebar_use_limits", on_change=sync_use_limits_from_sidebar)
+    st.session_state.use_limits = use_limits_sidebar
+
+    if st.session_state.use_limits:
+        # 侧边栏规格限输入（双向同步）
         st.sidebar.number_input("规格上限 (Upper L)", value=st.session_state.usl, step=0.1, format="%.4f", key="usl_sidebar", on_change=sync_usl_from_sidebar)
         st.sidebar.number_input("规格下限 (Lower L)", value=st.session_state.lsl, step=0.1, format="%.4f", key="lsl_sidebar", on_change=sync_lsl_from_sidebar)
+    else:
+        st.sidebar.info("规格限已禁用，不会计算CPK/PPM，直方图中不显示规格线。")
+
     seed = st.sidebar.number_input("随机种子", value=42, step=1)
 
     st.markdown("---")
@@ -447,14 +446,9 @@ def main():
         raw = st.session_state.sim_results_raw
         results = raw["results"]
         output_name = raw["output_name"]
-        use_spec = st.session_state.use_spec
-        if use_spec:
-            usl = st.session_state.usl
-            lsl = st.session_state.lsl
-            cpk, failures_all, failures_up, failures_dn = compute_cpk_ppm(results, usl, lsl)
-        else:
-            usl = lsl = 0.0
-            cpk = failures_all = failures_up = failures_dn = 0.0
+        use_limits = st.session_state.use_limits
+        usl = st.session_state.usl if use_limits else None
+        lsl = st.session_state.lsl if use_limits else None
 
         st.header(f"📈 模拟结果: {output_name}")
         col1, col2, col3 = st.columns(3)
@@ -463,15 +457,24 @@ def main():
         col2.metric("最大值", f"{raw['max']:.2f}")
         col2.metric("最小值", f"{raw['min']:.2f}")
 
-        # Failure ppm level 区域（仅在启用规格限时显示）
-        if use_spec:
-            st.subheader("Failure ppm level")
-            st.caption("💡 可调节上下限以实时观察PPM水平的变化")
-            col_left, col_right = st.columns([1, 2])
-            with col_left:
+        # Failure ppm level 区域
+        st.subheader("Failure ppm level")
+        st.caption("💡 可调节上下限以实时观察PPM水平的变化")
+        col_left, col_right = st.columns([1, 2])
+        with col_left:
+            # 主界面规格限启用复选框和输入框
+            use_limits_main = st.checkbox("使用规格限", value=use_limits, key="main_use_limits", on_change=sync_use_limits_from_main)
+            st.session_state.use_limits = use_limits_main
+            if use_limits_main:
                 st.number_input("规格上限 (USL)", value=st.session_state.usl, step=0.1, format="%.4f", key="main_usl", on_change=sync_usl_from_main)
                 st.number_input("规格下限 (LSL)", value=st.session_state.lsl, step=0.1, format="%.4f", key="main_lsl", on_change=sync_lsl_from_main)
-            with col_right:
+                usl = st.session_state.usl
+                lsl = st.session_state.lsl
+                cpk, failures_all, failures_up, failures_dn = compute_cpk_ppm(results, usl, lsl)
+            else:
+                cpk = failures_all = failures_up = failures_dn = None
+        with col_right:
+            if use_limits_main and cpk is not None:
                 ppm_html = f"""
                 <style>
                 .ppm-table {{
@@ -500,14 +503,17 @@ def main():
                 </table>
                 """
                 st.markdown(ppm_html, unsafe_allow_html=True)
+            else:
+                st.info("未启用规格限，无法计算CPK和PPM。")
 
-        # 分布直方图（右上角统计信息框）
+        # 分布直方图（右上角统计信息，图例在下方）
         st.subheader("分布直方图")
         fig_hist = plot_histogram(results, raw["bin_centers"], raw["hist_counts"],
-                                  raw["x_pdf"], raw["pdf_theory"], usl, lsl, output_name, n_sim, use_spec)
+                                  raw["x_pdf"], raw["pdf_theory"], usl if use_limits_main else None,
+                                  lsl if use_limits_main else None, output_name, use_limits_main, n_sim)
         st.pyplot(fig_hist)
 
-        # 设计参数影响百分比（完全按照附图）
+        # 设计参数影响百分比（无图例，一位小数）
         st.subheader(f"设计参数对 {output_name} 影响百分比")
         contributions = raw["contributions"]
         param_names = raw["param_names"]
@@ -532,7 +538,7 @@ def main():
             )
 
         # 报告下载
-        report_html = generate_report(raw, usl, lsl, n_sim, seed, formula, edited_df, use_spec)
+        report_html = generate_report(raw, usl, lsl, n_sim, seed, formula, edited_df, use_limits_main)
         st.download_button(
             label="📄 下载专业报告 (HTML)",
             data=report_html,
