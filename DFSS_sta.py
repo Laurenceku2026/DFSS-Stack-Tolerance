@@ -10,6 +10,10 @@ import base64
 from io import BytesIO
 from typing import List, Dict, Any, Tuple, Optional
 from datetime import datetime
+from docx import Document
+from docx.shared import Inches, Pt
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.enum.table import WD_TABLE_ALIGNMENT
 
 st.set_page_config(page_title="Para_Variation - 蒙特卡洛模拟", layout="wide")
 
@@ -325,7 +329,6 @@ def plot_histogram(results, bin_centers, hist_counts, x_pdf, pdf_theory, usl, ls
         ax.axvline(usl, color='green', linestyle='--', linewidth=1.5, label=f"USL = {usl:.2f}")
     if lsl is not None:
         ax.axvline(lsl, color='orange', linestyle='--', linewidth=1.5, label=f"LSL = {lsl:.2f}")
-    # 修改精度：AVE/MAX/MIN 两位小数，STD 四位小数
     stats_text = f"NO.={n_sim}\nAVE={np.mean(results):.2f}\nSTD={np.std(results, ddof=1):.4f}\nMAX={np.max(results):.2f}\nMIN={np.min(results):.2f}"
     ax.text(0.95, 0.95, stats_text, transform=ax.transAxes, fontsize=9, verticalalignment='top', horizontalalignment='right', bbox=dict(boxstyle='round', facecolor='white', alpha=0.8, edgecolor='gray'))
     ax.legend(loc='upper right', bbox_to_anchor=(0.95, 0.72), fontsize=9)
@@ -382,98 +385,103 @@ def compute_cpk_ppm(results: np.ndarray, usl: Optional[float], lsl: Optional[flo
         failures_all = failures_dn
     return cpk, failures_all, failures_up, failures_dn
 
-def generate_report(raw, usl, lsl, n_sim, seed, formula, params_df, param_letters, analyst_name, analyst_title):
+def generate_word_report(raw, usl, lsl, n_sim, seed, formula, params_df, param_letters, analyst_name, analyst_title, output_name):
     results = raw["results"]
-    output_name = raw["output_name"]
     cpk, failures_all, failures_up, failures_dn = compute_cpk_ppm(results, usl, lsl)
 
+    # 创建 Word 文档
+    doc = Document()
+    
+    # 标题
+    title = doc.add_heading(f"{output_name} - DFSS模拟分析报告", 0)
+    title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    
+    # 分析人信息
+    doc.add_heading("分析人信息", level=1)
+    p = doc.add_paragraph()
+    p.add_run(f"分析人姓名：{analyst_name if analyst_name else '未填写'}").bold = True
+    p.add_run(f"\n头衔：{analyst_title if analyst_title else '未填写'}")
+    
+    # 模拟设置
+    doc.add_heading("1. 模拟设置", level=1)
+    doc.add_paragraph(f"输出变量名称：{output_name}")
+    doc.add_paragraph(f"公式：{formula}")
+    doc.add_paragraph(f"模拟次数：{n_sim}")
+    doc.add_paragraph(f"随机种子：{seed}")
+    doc.add_paragraph(f"规格上限 (USL)：{usl if usl is not None else '无'}")
+    doc.add_paragraph(f"规格下限 (LSL)：{lsl if lsl is not None else '无'}")
+    
+    # 输入参数表
+    doc.add_heading("2. 输入参数表", level=1)
+    # 将 DataFrame 转换为 Word 表格
+    table = doc.add_table(rows=len(params_df)+1, cols=len(params_df.columns))
+    table.style = 'Table Grid'
+    # 表头
+    for j, col in enumerate(params_df.columns):
+        table.cell(0, j).text = col
+    # 数据
+    for i, row in params_df.iterrows():
+        for j, col in enumerate(params_df.columns):
+            if col == "分布参数":
+                # 分布参数是字典，只显示分布类型即可，避免冗长
+                table.cell(i+1, j).text = str(row[col]) if row[col] else "{}"
+            else:
+                table.cell(i+1, j).text = str(row[col])
+    
+    # 模拟结果统计
+    doc.add_heading("3. 模拟结果统计", level=1)
+    doc.add_paragraph(f"均值：{raw['mean']:.2f}")
+    doc.add_paragraph(f"标准差：{raw['std']:.4f}")
+    doc.add_paragraph(f"最大值：{raw['max']:.2f}")
+    doc.add_paragraph(f"最小值：{raw['min']:.2f}")
+    if cpk is not None:
+        doc.add_paragraph(f"Cpk：{cpk:.2f}")
+        doc.add_paragraph(f"Failure All (ppm)：{failures_all:.2f}" if failures_all is not None else "Failure All：-")
+        doc.add_paragraph(f"Failure Up (ppm)：{failures_up:.2f}" if failures_up is not None else "Failure Up：-")
+        doc.add_paragraph(f"Failure Dn (ppm)：{failures_dn:.2f}" if failures_dn is not None else "Failure Dn：-")
+    
+    # 分布直方图
+    doc.add_heading("4. 分布直方图", level=1)
     fig_hist = plot_histogram(results, raw["bin_centers"], raw["hist_counts"], raw["x_pdf"], raw["pdf_theory"], usl, lsl, output_name, n_sim)
     buf_hist = BytesIO()
-    fig_hist.savefig(buf_hist, format="png", dpi=150, bbox_inches="tight")
-    hist_b64 = base64.b64encode(buf_hist.getvalue()).decode()
+    fig_hist.savefig(buf_hist, format='png', dpi=150, bbox_inches='tight')
+    buf_hist.seek(0)
+    doc.add_picture(buf_hist, width=Inches(6))
     plt.close(fig_hist)
-
-    contributions = raw["contributions"]
-    param_names = raw["param_names"]
-    fig_barh = plot_contribution_horizontal(contributions, param_names, output_name)
+    
+    # 设计参数影响百分比
+    doc.add_heading("5. 设计参数对 " + output_name + " 影响百分比", level=1)
+    fig_barh = plot_contribution_horizontal(raw["contributions"], raw["param_names"], output_name)
     buf_barh = BytesIO()
-    fig_barh.savefig(buf_barh, format="png", dpi=150, bbox_inches="tight")
-    barh_b64 = base64.b64encode(buf_barh.getvalue()).decode()
+    fig_barh.savefig(buf_barh, format='png', dpi=150, bbox_inches='tight')
+    buf_barh.seek(0)
+    doc.add_picture(buf_barh, width=Inches(6))
     plt.close(fig_barh)
-
+    
+    # 贡献百分比数据表
+    doc.add_heading("详细数据表", level=2)
     df_contrib = raw["df_contrib"].copy()
-    df_contrib["贡献百分比_显示"] = df_contrib["贡献百分比"].apply(lambda x: f"{x:.1%}")
-    samples_df = pd.DataFrame(raw["samples"], columns=param_names)
-    samples_df[output_name] = results
-    preview_df = samples_df.head(100)
-
-    params_html = params_df.to_html(index=False, classes="dataframe", border=1, justify="center", float_format="%.2f")
-    contrib_html = df_contrib[["参数", "贡献百分比_显示"]].rename(columns={"贡献百分比_显示": "贡献百分比"}).to_html(index=False, classes="dataframe", border=1, justify="center")
-    preview_html = preview_df.to_html(index=False, classes="dataframe", border=1, justify="center", float_format="%.2f")
-
-    css = """
-    <style>
-        body { font-family: 'Segoe UI', Arial, sans-serif; margin: 20px; }
-        h1 { color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 5px; }
-        h2 { color: #34495e; margin-top: 25px; }
-        h3 { color: #555; }
-        .report-section { margin-bottom: 30px; }
-        table.dataframe { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 12pt; }
-        table.dataframe th, table.dataframe td { border: 1px solid black; padding: 8px; text-align: center; vertical-align: middle; }
-        table.dataframe th { background-color: #f2f2f2; font-weight: bold; }
-        .stats-table td, .stats-table th { text-align: center; }
-        .footer { margin-top: 40px; font-size: 10pt; color: #7f8c8d; text-align: center; }
-        .analyst-info { margin-bottom: 20px; padding: 10px; background-color: #f9f9f9; border-left: 4px solid #3498db; }
-    </style>
-    """
-    def fmt(val): return f"{val:.2f}" if val is not None else "-"
-    stats_html = f"""
-    <table class="dataframe stats-table">
-        <tr><th>统计量</th><th>数值</th></tr>
-        <tr><td>均值</td><td>{raw['mean']:.2f}</td></tr>
-        <tr><td>标准差</td><td>{raw['std']:.2f}</td></tr>
-        <tr><td>最大值</td><td>{raw['max']:.2f}</td></tr>
-        <tr><td>最小值</td><td>{raw['min']:.2f}</td></tr>
-    </table>
-    """
-    if cpk is not None:
-        stats_html += f"""
-        <table class="dataframe stats-table">
-            <tr><th>Cpk</th><th>Failure All (ppm)</th><th>Failure Up (ppm)</th><th>Failure Dn (ppm)</th></tr>
-            <tr><td>{fmt(cpk)}</td><td>{fmt(failures_all)}</td><td>{fmt(failures_up)}</td><td>{fmt(failures_dn)}</td></tr>
-        </table>
-        """
-    report_html = f"""
-    <!DOCTYPE html>
-    <html>
-    <head><meta charset="UTF-8"><title>蒙特卡洛模拟报告 - {output_name}</title>{css}</head>
-    <body>
-        <h1>蒙特卡洛模拟分析报告</h1>
-        <div class="analyst-info">
-            <strong>分析人：</strong> {analyst_name if analyst_name else "未填写"}<br>
-            <strong>头衔：</strong> {analyst_title if analyst_title else "未填写"}
-        </div>
-        <div class="report-section"><h2>1. 模拟设置</h2><ul>
-            <li><strong>输出变量名称：</strong> {output_name}</li>
-            <li><strong>公式：</strong> {formula}</li>
-            <li><strong>模拟次数：</strong> {n_sim}</li>
-            <li><strong>随机种子：</strong> {seed}</li>
-            <li><strong>规格上限 (USL)：</strong> {usl if usl is not None else "无"}</li>
-            <li><strong>规格下限 (LSL)：</strong> {lsl if lsl is not None else "无"}</li>
-        </ul></div>
-        <div class="report-section"><h2>2. 输入参数表</h2>{params_html}</div>
-        <div class="report-section"><h2>3. 模拟结果统计</h2>{stats_html}</div>
-        <div class="report-section"><h2>4. 分布直方图</h2><img src="data:image/png;base64,{hist_b64}" style="max-width:100%;"></div>
-        <div class="report-section"><h2>5. 设计参数对 {output_name} 影响百分比</h2><img src="data:image/png;base64,{barh_b64}" style="max-width:100%;"><h3>详细数据表</h3>{contrib_html}</div>
-        <div class="report-section"><h2>6. 模拟数据预览（前100行）</h2>{preview_html}</div>
-        <div class="footer">
-            报告生成时间：{pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S")}<br>
-            联系：电邮 Techlife2027@gmail.com
-        </div>
-    </body>
-    </html>
-    """
-    return report_html
+    df_contrib["贡献百分比"] = df_contrib["贡献百分比_显示"]
+    contrib_table = doc.add_table(rows=len(df_contrib)+1, cols=2)
+    contrib_table.style = 'Table Grid'
+    contrib_table.cell(0, 0).text = "参数"
+    contrib_table.cell(0, 1).text = "贡献百分比"
+    for i, row in df_contrib.iterrows():
+        contrib_table.cell(i+1, 0).text = row["参数"]
+        contrib_table.cell(i+1, 1).text = row["贡献百分比"]
+    
+    # 联系信息（页脚）
+    doc.add_page_break()
+    footer = doc.add_paragraph()
+    footer.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    footer.add_run("联系：电邮 Techlife2027@gmail.com").italic = True
+    footer.add_run(f"\n报告生成时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    
+    # 保存到 BytesIO
+    doc_bytes = BytesIO()
+    doc.save(doc_bytes)
+    doc_bytes.seek(0)
+    return doc_bytes
 
 def main():
     st.markdown('<div class="main-title">📊 Para_Variation - 基于蒙特卡洛模拟分析</div>', unsafe_allow_html=True)
@@ -489,16 +497,17 @@ def main():
         st.session_state.lsl_str = lsl_sidebar
         seed = st.number_input("随机种子", value=42, step=1)
 
-        # 添加“关于分析系统”说明
+        # 添加“关于分析系统”说明（润色后）
         st.markdown("---")
         st.markdown("### 关于分析系统")
         st.markdown("""
-        - 设计变量根据输入参数的公式来计算
-        - 每个参数独立根据 pdf 抽样
-        **输出：**
-        - 预测设计变量的量产的分布，均值与失效率
-        - 设计参数的影响百分比
-        - 通过调节上下限，找出合理失效率，从而定义合理规格
+        - **设计变量**：根据输入参数的公式计算得出。
+        - **参数抽样**：每个参数独立根据其概率密度函数（PDF）进行随机抽样。
+        
+        **输出结果：**
+        - 预测设计变量在量产阶段的分布形态、均值及失效率。
+        - 量化各设计参数对输出变量的影响百分比。
+        - 通过调节规格上下限，快速确定合理的失效率目标，从而定义合理的工程规格。
         """)
 
         # 分析人信息
@@ -729,8 +738,8 @@ def main():
                 def fmt(v): return f"{v:.2f}" if v is not None else "-"
                 st.markdown(f"""
                 <table class="ppm-table">
-                    <tr><th>CPK</th><th>Failure All</th><th>Failure Up</th><th>Failure Dn</th></tr>
-                    <tr><td>{fmt(cpk)}</td><td>{fmt(failures_all)}</td><td>{fmt(failures_up)}</td><td>{fmt(failures_dn)}</td></tr>
+                    <tr><th>CPK</th><th>Failure All</th><th>Failure Up</th><th>Failure Dn</th><tr>
+                    <tr><td style="text-align:center">{fmt(cpk)}</td><td style="text-align:center">{fmt(failures_all)}</td><td style="text-align:center">{fmt(failures_up)}</td><td style="text-align:center">{fmt(failures_dn)}</td></tr>
                 </table>
                 """, unsafe_allow_html=True)
             else:
@@ -758,8 +767,9 @@ def main():
             csv = samples_df.to_csv(index=False, float_format="%.6f")
             st.download_button("📥 下载模拟数据 (CSV)", data=csv, file_name=f"monte_carlo_data_{output_name}.csv", mime="text/csv")
 
-        report_html = generate_report(raw, usl, lsl, n_sim, seed, formula, st.session_state.params, st.session_state.param_letters, st.session_state.analyst_name, st.session_state.analyst_title)
-        st.download_button("📄 下载专业报告 (HTML)", data=report_html, file_name=f"MonteCarlo_Report_{output_name}.html", mime="text/html")
+        # 生成 Word 报告
+        doc_bytes = generate_word_report(raw, usl, lsl, n_sim, seed, formula, st.session_state.params, st.session_state.param_letters, st.session_state.analyst_name, st.session_state.analyst_title, output_name)
+        st.download_button("📄 下载专业报告 (Word)", data=doc_bytes, file_name=f"DFSS_Report_{output_name}.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
         st.success("模拟完成！")
 
 if __name__ == "__main__":
