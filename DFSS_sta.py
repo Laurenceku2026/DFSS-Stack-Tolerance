@@ -71,6 +71,14 @@ st.markdown("""
     .stButton button:hover {
         background-color: #2980b9;
     }
+    .design-value-card {
+        background-color: #e8f4fd;
+        border-radius: 10px;
+        padding: 15px;
+        margin-top: 15px;
+        text-align: center;
+        border-left: 5px solid #3498db;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -141,6 +149,12 @@ def safe_eval_with_mapping(expr: str, param_names: List[str], context_values: Li
     except Exception as e:
         st.error(f"公式计算错误: {e}\n请检查参数名是否与表格中的名称完全一致。")
         return np.nan
+
+def compute_design_value(params_df: pd.DataFrame, formula: str) -> Optional[float]:
+    """使用参数的均值计算设计值（典型值）"""
+    param_names = params_df["参数名称"].astype(str).tolist()
+    means = params_df["均值(Typ)"].values.astype(float)
+    return safe_eval_with_mapping(formula, param_names, means)
 
 def run_monte_carlo(params_df: pd.DataFrame, formula: str, n_sim: int, seed: int = 42) -> Dict[str, Any]:
     np.random.seed(seed)
@@ -441,11 +455,11 @@ def main():
     st.markdown('<div class="section-header">📝 参数输入</div>', unsafe_allow_html=True)
     edited_df = st.data_editor(st.session_state.params, num_rows="dynamic", use_container_width=True)
 
-    st.markdown('<div class="section-header">📐 公式定义</div>', unsafe_allow_html=True)
-    output_name = st.text_input("输出变量名称", value=st.session_state.output_name, key="output_name_input")
-    st.session_state.output_name = output_name if output_name.strip() else "Output"
+    # ========== 公式定义区域（放在参数表格下方，类似 Excel） ==========
+    st.markdown('<div class="section-header">📐 公式定义（设计值）</div>', unsafe_allow_html=True)
+    st.caption("使用与表格中**完全一致**的参数名称，点击下方按钮可插入参数到公式。")
 
-    st.caption("使用与表格中**完全一致**的参数名称，点击下方按钮可插入参数。")
+    # 参数按钮行（方便点击插入）
     param_names = edited_df["参数名称"].astype(str).tolist()
     cols_per_row = 5
     for i in range(0, len(param_names), cols_per_row):
@@ -453,10 +467,28 @@ def main():
         for idx, name in enumerate(param_names[i:i+cols_per_row]):
             with cols[idx]:
                 st.button(f"➕ {name}", key=f"btn_{name}", on_click=append_param, args=(name,))
+
+    # 输出变量名称输入框
+    output_name = st.text_input("输出变量名称", value=st.session_state.output_name, key="output_name_input")
+    st.session_state.output_name = output_name if output_name.strip() else "Output"
+
+    # 公式输入框
     formula = st.text_area("计算公式", value=st.session_state.formula, height=100, key="formula_input")
     st.session_state.formula = formula
     st.caption("支持的运算: + - * / **, 括号, 函数: sqrt, exp, log, sin, cos, tan, pi, e 等")
 
+    # 计算并显示当前设计值（典型值）
+    design_val = compute_design_value(edited_df, formula)
+    if design_val is not None and not np.isnan(design_val):
+        st.markdown(f"""
+        <div class="design-value-card">
+            <strong>📌 当前设计值（基于均值）:</strong> {output_name} = {design_val:.6f}
+        </div>
+        """, unsafe_allow_html=True)
+    else:
+        st.warning("公式无效或参数不匹配，无法计算设计值。")
+
+    # 蒙特卡洛模拟按钮
     if st.button("🚀 开始蒙特卡洛模拟", type="primary", use_container_width=True):
         if edited_df.isnull().values.any():
             st.error("参数表中存在空值，请检查！")
@@ -496,6 +528,7 @@ def main():
             "formula": formula,
         }
 
+    # 显示结果（如果已有模拟结果）
     if st.session_state.sim_results_raw is not None:
         raw = st.session_state.sim_results_raw
         results = raw["results"]
