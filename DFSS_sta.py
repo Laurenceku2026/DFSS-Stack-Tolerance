@@ -27,7 +27,6 @@ st.markdown("""
     .design-value-card { background-color: #e8f4fd; border-radius: 10px; padding: 15px; margin-top: 15px; text-align: center; border-left: 5px solid #3498db; }
     .big-label { font-size: 1.2rem; font-weight: 500; margin-bottom: 5px; }
     .formula-hint { font-size: 0.9rem; color: #6c757d; margin-top: 5px; text-align: right; }
-    .param-letter { font-weight: bold; font-size: 1rem; text-align: center; background-color: #e9ecef; border-radius: 4px; padding: 4px 0; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -75,33 +74,23 @@ def sync_lsl_from_sidebar(): st.session_state.lsl_str = st.session_state.lsl_sid
 
 def clean_formula(formula: str) -> str:
     """自动清理公式：去除多余空格，确保运算符周围有空格，但不过度"""
-    # 去除首尾空格
     formula = formula.strip()
-    # 将多个空格替换为单个空格
     formula = re.sub(r'\s+', ' ', formula)
-    # 确保运算符周围有空格（但括号内不强制）
-    # 简单处理：在 + - * / 前后加空格（如果原来没有）
     formula = re.sub(r'(?<=[0-9a-zA-Z)])\s*([+\-*/])\s*(?=[0-9a-zA-Z(])', r' \1 ', formula)
-    # 去除括号内外的多余空格
     formula = re.sub(r'\(\s+', '(', formula)
     formula = re.sub(r'\s+\)', ')', formula)
     return formula
 
 def replace_letters_with_names(expr: str, param_letters: Dict[str, str]) -> str:
-    """将公式中的字母替换回原始参数名，以便计算"""
     reverse_map = {v: k for k, v in param_letters.items()}
-    # 按字母长度降序排序（都是单字母，但保险）
     for letter, name in sorted(reverse_map.items(), key=lambda x: len(x[0]), reverse=True):
         pattern = r'(?<![a-zA-Z0-9_])' + re.escape(letter) + r'(?![a-zA-Z0-9_])'
         expr = re.sub(pattern, name, expr)
     return expr
 
 def safe_eval_with_mapping(expr: str, param_names: List[str], context_values: List[float], param_letters: Dict[str, str]) -> float:
-    # 先清理公式
     expr = clean_formula(expr)
-    # 将字母替换为参数名
     expr_with_names = replace_letters_with_names(expr, param_letters)
-    # 再将参数名映射为临时变量
     temp_names = [f"__p{i}__" for i in range(len(param_names))]
     sorted_params = sorted(zip(param_names, temp_names), key=lambda x: len(x[0]), reverse=True)
     expr_temp = expr_with_names
@@ -318,14 +307,14 @@ def generate_report(raw, usl, lsl, n_sim, seed, formula, params_df, param_letter
         <tr><td>均值</td><td>{raw['mean']:.2f}</td></tr>
         <tr><td>标准差</td><td>{raw['std']:.2f}</td></tr>
         <tr><td>最大值</td><td>{raw['max']:.2f}</td></tr>
-        <tr><td>最小值</td><td>{raw['min']:.2f}</td></tr>
+        <tr><td>最小值</td><td>{raw['min']:.2f}</td>
     </table>
     """
     if cpk is not None:
         stats_html += f"""
         <table class="dataframe stats-table">
             <tr><th>Cpk</th><th>Failure All (ppm)</th><th>Failure Up (ppm)</th><th>Failure Dn (ppm)</th></tr>
-            <tr><td>{fmt(cpk)}</td><td>{fmt(failures_all)}</td><td>{fmt(failures_up)}</td><td>{fmt(failures_dn)}</td></tr>
+            <tr><td>{fmt(cpk)}</td><td>{fmt(failures_all)}</td><td>{fmt(failures_up)}</td><td>{fmt(failures_dn)}</td>
         </table>
         """
     report_html = f"""
@@ -367,7 +356,7 @@ def main():
         st.session_state.lsl_str = lsl_sidebar
         seed = st.number_input("随机种子", value=42, step=1)
 
-    # ================= 参数输入表格（可动态增删行，每行左侧显示字母标签） =================
+    # ================= 参数输入表格（可动态增删行） =================
     st.markdown('<div class="section-header">📝 参数输入</div>', unsafe_allow_html=True)
 
     # 使用 data_editor 实现可编辑、可增删行
@@ -379,7 +368,7 @@ def main():
             "参数名称": st.column_config.TextColumn("参数名称", required=True),
             "均值(Typ)": st.column_config.NumberColumn("均值(Typ)", format="%.2f"),
             "标准差(Std)": st.column_config.NumberColumn("标准差(Std)", format="%.4f"),
-            "分布": st.column_config.SelectColumn("分布", options=["正态分布"], default="正态分布"),
+            "分布": st.column_config.SelectboxColumn("分布", options=["正态分布"], default="正态分布"),
         },
         key="params_editor"
     )
@@ -411,7 +400,7 @@ def main():
     st.session_state.formula = formula
     st.caption("支持的运算: + - * / **, 括号, 函数: sqrt, exp, log, sin, cos, tan, pi, e 等。公式中的空格会被自动优化。")
 
-    # 实时计算设计值（自动清理公式）
+    # 实时计算设计值
     design_val = compute_design_value(st.session_state.params, formula, st.session_state.param_letters)
     if design_val is not None and not np.isnan(design_val):
         st.markdown(f"""
@@ -503,7 +492,7 @@ def main():
                 st.markdown(f"""
                 <table class="ppm-table">
                     <tr><th>CPK</th><th>Failure All</th><th>Failure Up</th><th>Failure Dn</th></tr>
-                    <tr><td>{fmt(cpk)}</td><td>{fmt(failures_all)}</td><td>{fmt(failures_up)}</td><td>{fmt(failures_dn)}</td></tr>
+                    <tr><td>{fmt(cpk)}</td><td>{fmt(failures_all)}</td><td>{fmt(failures_up)}</td><td>{fmt(failures_dn)}</td>
                 </table>
                 """, unsafe_allow_html=True)
             else:
