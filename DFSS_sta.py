@@ -247,7 +247,7 @@ if "lang" not in st.session_state:
 def t(key):
     return TEXTS[st.session_state.lang].get(key, key)
 
-# 自定义 CSS（黑色字体，红色按钮）
+# 自定义 CSS（黑色字体，红色主按钮，蓝色辅助按钮）
 st.markdown("""
 <style>
     /* 全局字体颜色黑色 */
@@ -262,8 +262,9 @@ st.markdown("""
     .ppm-table { border-collapse: collapse; width: 100%; margin: 0 auto; }
     .ppm-table th, .ppm-table td { border: 2px solid #000000; padding: 10px 16px; text-align: center; font-size: 1rem; }
     .ppm-table th { background-color: #e9ecef; font-weight: 600; }
-    /* 红色按钮 */
-    .stButton button[data-testid="baseButton-primary"] {
+    
+    /* 主按钮（开始蒙特卡洛模拟）红底白字 */
+    .stButton > button[data-testid="baseButton-primary"] {
         background-color: #dc3545 !important;
         color: white !important;
         font-weight: 500;
@@ -272,16 +273,21 @@ st.markdown("""
         margin-top: 20px;
         white-space: pre-line;
     }
-    .stButton button[data-testid="baseButton-primary"]:hover {
+    .stButton > button[data-testid="baseButton-primary"]:hover {
         background-color: #c82333 !important;
     }
-    /* 其他按钮保持原样 */
-    .stButton button {
-        background-color: #6c757d;
-        color: white;
+    
+    /* 辅助按钮（添加参数行、删除、语言按钮）浅蓝色 */
+    .stButton > button:not([data-testid="baseButton-primary"]) {
+        background-color: #3498db !important;
+        color: white !important;
         font-weight: 500;
         border-radius: 5px;
     }
+    .stButton > button:not([data-testid="baseButton-primary"]):hover {
+        background-color: #2980b9 !important;
+    }
+    
     .design-value-card { background-color: #e8f4fd; border-radius: 10px; padding: 15px; margin-top: 15px; text-align: center; border-left: 5px solid #cccccc; }
     .design-value-card strong { font-size: 1.1rem; color: #000000; }
     .design-value-number { font-size: 1.6rem; font-weight: 600; color: #000000; margin-top: 5px; }
@@ -291,12 +297,13 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# 语言切换按钮（放在右上角）
-col_lang1, col_lang2, col_lang3 = st.columns([0.85, 0.05, 0.1])
-with col_lang3:
+# 语言切换按钮（横向排列，红底白字）
+col_lang1, col_lang2, col_lang3 = st.columns([0.85, 0.07, 0.08])
+with col_lang2:
     if st.button("中文", key="lang_zh"):
         st.session_state.lang = "zh"
         st.rerun()
+with col_lang3:
     if st.button("English", key="lang_en"):
         st.session_state.lang = "en"
         st.rerun()
