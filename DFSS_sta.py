@@ -3,8 +3,15 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'WenQuanYi Micro Hei', 'DejaVu Sans']  # 支持中文
-plt.rcParams['axes.unicode_minus'] = False  # 解决负号显示问题
+import matplotlib.font_manager as fm
+
+# 查找系统中支持中文的字体
+chinese_fonts = [font.name for font in fm.fontManager.ttflist if 'CJK' in font.name or 'Hei' in font.name or 'SimHei' in font.name or 'WenQuanYi' in font.name]
+if chinese_fonts:
+    plt.rcParams['font.sans-serif'] = [chinese_fonts[0]]
+else:
+    plt.rcParams['font.sans-serif'] = ['DejaVu Sans']  # 回退到英文
+plt.rcParams['axes.unicode_minus'] = False
 from scipy import stats
 import math
 import re
