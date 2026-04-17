@@ -22,12 +22,12 @@ st.markdown("""
     .ppm-table { border-collapse: collapse; width: 100%; margin: 0 auto; }
     .ppm-table th, .ppm-table td { border: 2px solid #000000; padding: 10px 16px; text-align: center; font-size: 1rem; }
     .ppm-table th { background-color: #e9ecef; font-weight: 600; }
-    .stButton button { background-color: #3498db; color: white; font-weight: 500; border-radius: 5px; font-size: 1.1rem; margin-top: 20px; }  /* 按钮上边距，不使用全宽 */
+    .stButton button { background-color: #3498db; color: white; font-weight: 500; border-radius: 5px; font-size: 1.2rem; margin-top: 20px; white-space: pre-line; }  /* 支持换行 */
     .stButton button:hover { background-color: #2980b9; }
     .design-value-card { background-color: #e8f4fd; border-radius: 10px; padding: 15px; margin-top: 15px; text-align: center; border-left: 5px solid #3498db; }
     .design-value-card strong { font-size: 1.1rem; }
     .design-value-number { font-size: 1.6rem; font-weight: 600; color: #1f3a93; margin-top: 5px; }
-    .big-label { font-size: 1.3rem; font-weight: 500; margin-bottom: 5px; }  /* 统一标签大小 */
+    .big-label { font-size: 1.3rem; font-weight: 500; margin-bottom: 5px; }
     .param-letter { font-weight: bold; font-size: 1rem; text-align: center; background-color: #e9ecef; border-radius: 4px; padding: 6px 0; width: 40px; }
     .formula-hint { font-size: 0.9rem; color: #6c757d; margin-bottom: 5px; }
 </style>
@@ -396,7 +396,10 @@ def main():
 
     # 公式定义区域
     st.markdown('<div class="section-header">📐 公式定义（设计值）</div>', unsafe_allow_html=True)
-    output_name = st.text_input("📌 设计变量名称", value=st.session_state.output_name, key="output_name_input")
+
+    # 使用独立的 markdown 标签，确保字体与“计算公式”一致
+    st.markdown('<span class="big-label">📌 设计变量名称</span>', unsafe_allow_html=True)
+    output_name = st.text_input("", value=st.session_state.output_name, key="output_name_input", label_visibility="collapsed")
     st.session_state.output_name = output_name if output_name.strip() else "Output"
 
     st.markdown('<span class="big-label">📝 计算公式</span>', unsafe_allow_html=True)
@@ -416,48 +419,50 @@ def main():
     else:
         st.warning("公式无效或参数不匹配，无法计算设计值。请检查公式中的字母是否与上方对应关系一致，并确保运算正确。")
 
-    # 大按钮，不使用全宽，并已通过 CSS 设置上边距
-    if st.button("🚀 开始蒙特卡洛模拟", type="primary"):
-        if st.session_state.params.isnull().values.any():
-            st.error("参数表中存在空值，请检查！")
-            return
-        param_names = st.session_state.params["参数名称"].astype(str).tolist()
-        if len(set(param_names)) != len(param_names):
-            st.error("参数名称必须唯一！")
-            return
-        if not formula.strip():
-            st.error("公式不能为空！")
-            return
+    # 大按钮居中，文字分两行
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        if st.button("开始\n蒙特卡洛模拟", type="primary", use_container_width=True):
+            if st.session_state.params.isnull().values.any():
+                st.error("参数表中存在空值，请检查！")
+                st.stop()
+            param_names = st.session_state.params["参数名称"].astype(str).tolist()
+            if len(set(param_names)) != len(param_names):
+                st.error("参数名称必须唯一！")
+                st.stop()
+            if not formula.strip():
+                st.error("公式不能为空！")
+                st.stop()
 
-        with st.spinner("正在进行蒙特卡洛模拟..."):
-            sim_res = run_monte_carlo(st.session_state.params, formula, n_sim, st.session_state.param_letters, seed)
-        if sim_res is None:
-            return
+            with st.spinner("正在进行蒙特卡洛模拟..."):
+                sim_res = run_monte_carlo(st.session_state.params, formula, n_sim, st.session_state.param_letters, seed)
+            if sim_res is None:
+                st.stop()
 
-        with st.spinner("正在计算各参数贡献度..."):
-            df_contrib, contributions, param_names = sensitivity_analysis(st.session_state.params, formula, n_sim, st.session_state.param_letters, seed)
+            with st.spinner("正在计算各参数贡献度..."):
+                df_contrib, contributions, param_names = sensitivity_analysis(st.session_state.params, formula, n_sim, st.session_state.param_letters, seed)
 
-        st.session_state.sim_results_raw = {
-            "results": sim_res["results"],
-            "samples": sim_res["samples"],
-            "mean": sim_res["mean"],
-            "std": sim_res["std"],
-            "max": sim_res["max"],
-            "min": sim_res["min"],
-            "hist_counts": sim_res["hist_counts"],
-            "bin_edges": sim_res["bin_edges"],
-            "bin_centers": sim_res["bin_centers"],
-            "x_pdf": sim_res["x_pdf"],
-            "pdf_theory": sim_res["pdf_theory"],
-            "param_names": sim_res["param_names"],
-            "df_contrib": df_contrib,
-            "contributions": contributions,
-            "params_df": st.session_state.params,
-            "output_name": output_name,
-            "formula": formula,
-        }
+            st.session_state.sim_results_raw = {
+                "results": sim_res["results"],
+                "samples": sim_res["samples"],
+                "mean": sim_res["mean"],
+                "std": sim_res["std"],
+                "max": sim_res["max"],
+                "min": sim_res["min"],
+                "hist_counts": sim_res["hist_counts"],
+                "bin_edges": sim_res["bin_edges"],
+                "bin_centers": sim_res["bin_centers"],
+                "x_pdf": sim_res["x_pdf"],
+                "pdf_theory": sim_res["pdf_theory"],
+                "param_names": sim_res["param_names"],
+                "df_contrib": df_contrib,
+                "contributions": contributions,
+                "params_df": st.session_state.params,
+                "output_name": output_name,
+                "formula": formula,
+            }
 
-    # 显示结果（略，与之前相同）
+    # 显示结果（与之前相同）
     if st.session_state.sim_results_raw is not None:
         raw = st.session_state.sim_results_raw
         results = raw["results"]
