@@ -36,6 +36,8 @@ if "usl" not in st.session_state:
     st.session_state.usl = 40.0
 if "lsl" not in st.session_state:
     st.session_state.lsl = 30.0
+if "use_spec" not in st.session_state:
+    st.session_state.use_spec = True  # 是否使用规格限
 
 # ---------- 上下限双向同步回调函数 ----------
 def sync_usl_from_main():
@@ -161,20 +163,34 @@ def sensitivity_analysis(params_df: pd.DataFrame,
     df_contrib["贡献百分比_显示"] = df_contrib["贡献百分比"].apply(lambda x: f"{x:.6%}")
     return df_contrib, contributions, param_names
 
-# 绘图函数：直方图（标识符合附图）
-def plot_histogram(results, bin_centers, hist_counts, x_pdf, pdf_theory, usl, lsl, output_name):
+# 绘图函数：直方图（右上角添加统计信息框）
+def plot_histogram(results, bin_centers, hist_counts, x_pdf, pdf_theory, usl, lsl, output_name, n_sim, use_spec):
     fig, ax = plt.subplots(figsize=(10, 6))
     ax.bar(bin_centers, hist_counts, width=(bin_centers[1]-bin_centers[0])*0.9,
            alpha=0.6, label="Histogram", color="steelblue")
     bin_width = bin_centers[1] - bin_centers[0]
     area = np.sum(hist_counts) * bin_width
     ax.plot(x_pdf, pdf_theory * area, 'r-', linewidth=2, label="Gaussian Fitting")
-    ax.axvline(usl, color='green', linestyle='--', label=f"USL = {usl:.2f}")
-    ax.axvline(lsl, color='orange', linestyle='--', label=f"LSL = {lsl:.2f}")
+    
+    if use_spec:
+        ax.axvline(usl, color='green', linestyle='--', label=f"USL = {usl:.2f}")
+        ax.axvline(lsl, color='orange', linestyle='--', label=f"LSL = {lsl:.2f}")
+    
     ax.set_xlabel(output_name)
     ax.set_ylabel("Frequency")
     ax.set_title(f"{output_name} Distribution")
-    ax.legend()
+    ax.legend(loc='upper right')
+    
+    # 在右上角添加统计信息框（仿附图）
+    mean_val = np.mean(results)
+    std_val = np.std(results, ddof=1)
+    max_val = np.max(results)
+    min_val = np.min(results)
+    stats_text = f"NO.={len(results)}\nAVE={mean_val:.4f}\nSTD={std_val:.4f}\nMAX={max_val:.4f}\nMIN={min_val:.4f}"
+    ax.text(0.95, 0.95, stats_text, transform=ax.transAxes,
+            verticalalignment='top', horizontalalignment='right',
+            bbox=dict(boxstyle='round', facecolor='white', alpha=0.8),
+            fontsize=9, family='monospace')
     return fig
 
 # 绘图函数：水平条形图（完全按照附图红色样式）
@@ -193,7 +209,6 @@ def plot_contribution_horizontal(contributions: List[float], param_names: List[s
 
     fig, ax = plt.subplots(figsize=(8, max(4, len(names)*0.4)))
     bars = ax.barh(names, vals, color='steelblue')
-    # 在条形末端显示高精度百分比（6位小数）
     for bar, val in zip(bars, vals):
         ax.text(val + 0.01, bar.get_y() + bar.get_height()/2, f'{val:.6%}',
                 va='center', fontsize=9)
@@ -216,14 +231,17 @@ def compute_cpk_ppm(results: np.ndarray, usl: float, lsl: float):
     failures_all = failures_up + failures_dn
     return cpk, failures_all, failures_up, failures_dn
 
-# 生成 HTML 报告（保留高精度）
-def generate_report(raw, usl, lsl, n_sim, seed, formula, params_df):
+# 生成 HTML 报告
+def generate_report(raw, usl, lsl, n_sim, seed, formula, params_df, use_spec):
     results = raw["results"]
     output_name = raw["output_name"]
-    cpk, failures_all, failures_up, failures_dn = compute_cpk_ppm(results, usl, lsl)
+    if use_spec:
+        cpk, failures_all, failures_up, failures_dn = compute_cpk_ppm(results, usl, lsl)
+    else:
+        cpk, failures_all, failures_up, failures_dn = 0.0, 0.0, 0.0, 0.0
 
     fig_hist = plot_histogram(results, raw["bin_centers"], raw["hist_counts"],
-                              raw["x_pdf"], raw["pdf_theory"], usl, lsl, output_name)
+                              raw["x_pdf"], raw["pdf_theory"], usl, lsl, output_name, n_sim, use_spec)
     buf_hist = BytesIO()
     fig_hist.savefig(buf_hist, format="png", dpi=150, bbox_inches="tight")
     hist_b64 = base64.b64encode(buf_hist.getvalue()).decode()
@@ -276,19 +294,30 @@ def generate_report(raw, usl, lsl, n_sim, seed, formula, params_df):
     </style>
     """
 
-    stats_html = f"""
-    <table class="dataframe stats-table">
-        <tr><th>统计量</th><th>数值</th></tr>
-        <tr><td>均值</td><td>{raw['mean']:.2f}</td></tr>
-        <tr><td>标准差</td><td>{raw['std']:.2f}</td></tr>
-        <tr><td>最大值</td><td>{raw['max']:.2f}</td></tr>
-        <tr><td>最小值</td><td>{raw['min']:.2f}</td></tr>
-        <tr><td>Cpk</td><td>{cpk:.2f}</td></tr>
-        <tr><td>Failure All (ppm)</td><td>{failures_all:.2f}</td></tr>
-        <tr><td>Failure Up (ppm)</td><td>{failures_up:.2f}</td></tr>
-        <tr><td>Failure Dn (ppm)</td><td>{failures_dn:.2f}</td></tr>
-    </table>
-    """
+    if use_spec:
+        stats_html = f"""
+        <table class="dataframe stats-table">
+            <tr><th>统计量</th><th>数值</th></tr>
+            <tr><td>均值</td><td>{raw['mean']:.2f}</td></tr>
+            <tr><td>标准差</td><td>{raw['std']:.2f}</td></tr>
+            <tr><td>最大值</td><td>{raw['max']:.2f}</td></tr>
+            <tr><td>最小值</td><td>{raw['min']:.2f}</td></tr>
+            <tr><td>Cpk</td><td>{cpk:.2f}</td></tr>
+            <tr><td>Failure All (ppm)</td><td>{failures_all:.2f}</td></tr>
+            <tr><td>Failure Up (ppm)</td><td>{failures_up:.2f}</td></tr>
+            <tr><td>Failure Dn (ppm)</td><td>{failures_dn:.2f}</td></tr>
+        </table>
+        """
+    else:
+        stats_html = f"""
+        <table class="dataframe stats-table">
+            <tr><th>统计量</th><th>数值</th></tr>
+            <tr><td>均值</td><td>{raw['mean']:.2f}</td></tr>
+            <tr><td>标准差</td><td>{raw['std']:.2f}</td></tr>
+            <tr><td>最大值</td><td>{raw['max']:.2f}</td></tr>
+            <tr><td>最小值</td><td>{raw['min']:.2f}</td></tr>
+        </table>
+        """
 
     report_html = f"""
     <!DOCTYPE html>
@@ -306,8 +335,9 @@ def generate_report(raw, usl, lsl, n_sim, seed, formula, params_df):
                 <li><strong>输出变量名称：</strong> {output_name}</li>
                 <li><strong>公式：</strong> {formula}</li>
                 <li><strong>模拟次数：</strong> {n_sim}</li>
-                <li><strong>规格上限 (USL)：</strong> {usl:.2f}</li>
-                <li><strong>规格下限 (LSL)：</strong> {lsl:.2f}</li>
+                <li><strong>使用规格限：</strong> {"是" if use_spec else "否"}</li>
+                {f"<li><strong>规格上限 (USL)：</strong> {usl:.2f}</li>" if use_spec else ""}
+                {f"<li><strong>规格下限 (LSL)：</strong> {lsl:.2f}</li>" if use_spec else ""}
                 <li><strong>随机种子：</strong> {seed}</li>
             </ul>
         </div>
@@ -345,9 +375,11 @@ def generate_report(raw, usl, lsl, n_sim, seed, formula, params_df):
 def main():
     st.sidebar.header("⚙️ 模拟设置")
     n_sim = st.sidebar.number_input("模拟次数 (Trail number)", min_value=100, max_value=100000, value=1000, step=100)
-    # 侧边栏规格限输入（双向同步）
-    st.sidebar.number_input("规格上限 (Upper L)", value=st.session_state.usl, step=0.1, format="%.4f", key="usl_sidebar", on_change=sync_usl_from_sidebar)
-    st.sidebar.number_input("规格下限 (Lower L)", value=st.session_state.lsl, step=0.1, format="%.4f", key="lsl_sidebar", on_change=sync_lsl_from_sidebar)
+    use_spec = st.sidebar.checkbox("使用规格限", value=st.session_state.use_spec, key="use_spec_sidebar")
+    st.session_state.use_spec = use_spec
+    if use_spec:
+        st.sidebar.number_input("规格上限 (Upper L)", value=st.session_state.usl, step=0.1, format="%.4f", key="usl_sidebar", on_change=sync_usl_from_sidebar)
+        st.sidebar.number_input("规格下限 (Lower L)", value=st.session_state.lsl, step=0.1, format="%.4f", key="lsl_sidebar", on_change=sync_lsl_from_sidebar)
     seed = st.sidebar.number_input("随机种子", value=42, step=1)
 
     st.markdown("---")
@@ -415,10 +447,14 @@ def main():
         raw = st.session_state.sim_results_raw
         results = raw["results"]
         output_name = raw["output_name"]
-        # 使用当前 session_state 中的 usl/lsl（已与侧边栏和主界面同步）
-        usl = st.session_state.usl
-        lsl = st.session_state.lsl
-        cpk, failures_all, failures_up, failures_dn = compute_cpk_ppm(results, usl, lsl)
+        use_spec = st.session_state.use_spec
+        if use_spec:
+            usl = st.session_state.usl
+            lsl = st.session_state.lsl
+            cpk, failures_all, failures_up, failures_dn = compute_cpk_ppm(results, usl, lsl)
+        else:
+            usl = lsl = 0.0
+            cpk = failures_all = failures_up = failures_dn = 0.0
 
         st.header(f"📈 模拟结果: {output_name}")
         col1, col2, col3 = st.columns(3)
@@ -427,48 +463,48 @@ def main():
         col2.metric("最大值", f"{raw['max']:.2f}")
         col2.metric("最小值", f"{raw['min']:.2f}")
 
-        # Failure ppm level 区域（左侧输入框与侧边栏同步）
-        st.subheader("Failure ppm level")
-        st.caption("💡 可调节上下限以实时观察PPM水平的变化")
-        col_left, col_right = st.columns([1, 2])
-        with col_left:
-            # 主界面规格限输入框，与 session_state 双向同步
-            st.number_input("规格上限 (USL)", value=st.session_state.usl, step=0.1, format="%.4f", key="main_usl", on_change=sync_usl_from_main)
-            st.number_input("规格下限 (LSL)", value=st.session_state.lsl, step=0.1, format="%.4f", key="main_lsl", on_change=sync_lsl_from_main)
-        with col_right:
-            ppm_html = f"""
-            <style>
-            .ppm-table {{
-                border-collapse: collapse;
-                width: auto;
-                margin: 0 auto;
-            }}
-            .ppm-table th, .ppm-table td {{
-                border: 2px solid black;
-                padding: 8px 16px;
-                text-align: center;
-                font-weight: normal;
-            }}
-            .ppm-table th {{
-                background-color: #f0f0f0;
-            }}
-            </style>
-            <table class="ppm-table">
-                <tr><th>CPK</th><th>Failure All</th><th>Failure Up</th><th>Failure Dn</th></tr>
-                <tr>
-                    <td>{cpk:.2f}</td>
-                    <td>{failures_all:.2f}</td>
-                    <td>{failures_up:.2f}</td>
-                    <td>{failures_dn:.2f}</td>
-                </tr>
-            </table>
-            """
-            st.markdown(ppm_html, unsafe_allow_html=True)
+        # Failure ppm level 区域（仅在启用规格限时显示）
+        if use_spec:
+            st.subheader("Failure ppm level")
+            st.caption("💡 可调节上下限以实时观察PPM水平的变化")
+            col_left, col_right = st.columns([1, 2])
+            with col_left:
+                st.number_input("规格上限 (USL)", value=st.session_state.usl, step=0.1, format="%.4f", key="main_usl", on_change=sync_usl_from_main)
+                st.number_input("规格下限 (LSL)", value=st.session_state.lsl, step=0.1, format="%.4f", key="main_lsl", on_change=sync_lsl_from_main)
+            with col_right:
+                ppm_html = f"""
+                <style>
+                .ppm-table {{
+                    border-collapse: collapse;
+                    width: auto;
+                    margin: 0 auto;
+                }}
+                .ppm-table th, .ppm-table td {{
+                    border: 2px solid black;
+                    padding: 8px 16px;
+                    text-align: center;
+                    font-weight: normal;
+                }}
+                .ppm-table th {{
+                    background-color: #f0f0f0;
+                }}
+                </style>
+                <table class="ppm-table">
+                    <tr><th>CPK</th><th>Failure All</th><th>Failure Up</th><th>Failure Dn</th></tr>
+                    <tr>
+                        <td>{cpk:.2f}</td>
+                        <td>{failures_all:.2f}</td>
+                        <td>{failures_up:.2f}</td>
+                        <td>{failures_dn:.2f}</td>
+                    </tr>
+                </table>
+                """
+                st.markdown(ppm_html, unsafe_allow_html=True)
 
-        # 分布直方图（新标识）
+        # 分布直方图（右上角统计信息框）
         st.subheader("分布直方图")
         fig_hist = plot_histogram(results, raw["bin_centers"], raw["hist_counts"],
-                                  raw["x_pdf"], raw["pdf_theory"], usl, lsl, output_name)
+                                  raw["x_pdf"], raw["pdf_theory"], usl, lsl, output_name, n_sim, use_spec)
         st.pyplot(fig_hist)
 
         # 设计参数影响百分比（完全按照附图）
@@ -481,7 +517,7 @@ def main():
         with st.expander("查看贡献百分比数据表"):
             st.dataframe(raw["df_contrib"][["参数", "贡献百分比_显示"]].rename(columns={"贡献百分比_显示": "贡献百分比"}), use_container_width=True)
 
-        # 模拟数据预览：显示全部数据（带滚动）
+        # 模拟数据预览
         with st.expander("查看全部模拟数据"):
             samples_df = pd.DataFrame(raw["samples"], columns=param_names)
             samples_df[output_name] = results
@@ -496,7 +532,7 @@ def main():
             )
 
         # 报告下载
-        report_html = generate_report(raw, usl, lsl, n_sim, seed, formula, edited_df)
+        report_html = generate_report(raw, usl, lsl, n_sim, seed, formula, edited_df, use_spec)
         st.download_button(
             label="📄 下载专业报告 (HTML)",
             data=report_html,
