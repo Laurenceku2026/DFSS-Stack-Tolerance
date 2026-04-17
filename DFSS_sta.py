@@ -79,15 +79,42 @@ st.markdown("""
         text-align: center;
         border-left: 5px solid #3498db;
     }
-    .param-button-row {
-        margin: 10px 0;
+    /* 自定义表格按钮样式 */
+    .param-row {
+        margin-bottom: 8px;
         display: flex;
-        flex-wrap: wrap;
+        align-items: center;
         gap: 10px;
     }
-    .param-button-row button {
-        margin: 0;
+    .param-name {
+        flex: 2;
+        font-weight: 500;
     }
+    .param-mean, .param-std, .param-dist {
+        flex: 1;
+        text-align: center;
+    }
+    .param-button {
+        flex: 0.5;
+        text-align: center;
+    }
+    .table-header {
+        font-weight: bold;
+        background-color: #f0f2f6;
+        padding: 8px;
+        border-radius: 5px;
+        margin-bottom: 10px;
+        display: flex;
+        gap: 10px;
+    }
+    .table-header > div {
+        text-align: center;
+    }
+    .table-header .param-name-header { flex: 2; }
+    .table-header .param-mean-header { flex: 1; }
+    .table-header .param-std-header { flex: 1; }
+    .table-header .param-dist-header { flex: 1; }
+    .table-header .param-button-header { flex: 0.5; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -132,12 +159,14 @@ def sync_lsl_from_sidebar():
     st.session_state.lsl_str = st.session_state.lsl_sidebar
 
 def append_param(param_name: str):
-    """将参数名追加到公式中"""
+    """将参数名追加到公式中，并立即刷新页面"""
     current = st.session_state.formula
-    if current and not current.endswith((' ', '+')):
+    # 如果当前公式不为空且末尾不是空格或运算符，添加空格分隔
+    if current and not current.endswith((' ', '+', '-', '*', '/', '(')):
         st.session_state.formula = current + " " + param_name
     else:
         st.session_state.formula = current + param_name
+    # 不需要 rerun，因为 session_state 变化会自动触发重新渲染
 
 def safe_eval_with_mapping(expr: str, param_names: List[str], context_values: List[float]) -> float:
     temp_names = [f"__p{i}__" for i in range(len(param_names))]
@@ -157,13 +186,14 @@ def safe_eval_with_mapping(expr: str, param_names: List[str], context_values: Li
         result = eval(expr_temp, {"__builtins__": {}}, allowed_names)
         return float(result)
     except Exception as e:
-        st.error(f"公式计算错误: {e}\n请检查参数名是否与表格中的名称完全一致。")
+        # 不显示错误，返回 NaN
         return np.nan
 
 def compute_design_value(params_df: pd.DataFrame, formula: str) -> Optional[float]:
     param_names = params_df["参数名称"].astype(str).tolist()
     means = params_df["均值(Typ)"].values.astype(float)
-    return safe_eval_with_mapping(formula, param_names, means)
+    val = safe_eval_with_mapping(formula, param_names, means)
+    return val if not np.isnan(val) else None
 
 def run_monte_carlo(params_df: pd.DataFrame, formula: str, n_sim: int, seed: int = 42) -> Dict[str, Any]:
     np.random.seed(seed)
@@ -461,40 +491,69 @@ def main():
         st.session_state.lsl_str = lsl_sidebar
         seed = st.number_input("随机种子", value=42, step=1)
 
-    # 参数输入表格
+    # 参数输入区域 - 自定义表格，每行带插入按钮
     st.markdown('<div class="section-header">📝 参数输入</div>', unsafe_allow_html=True)
-    edited_df = st.data_editor(st.session_state.params, num_rows="dynamic", use_container_width=True)
 
-    # 获取当前参数名称列表
-    param_names = edited_df["参数名称"].astype(str).tolist()
+    # 显示表头
+    col1, col2, col3, col4, col5 = st.columns([2, 1, 1, 1, 0.6])
+    with col1:
+        st.markdown("**参数名称**")
+    with col2:
+        st.markdown("**均值(Typ)**")
+    with col3:
+        st.markdown("**标准差(Std)**")
+    with col4:
+        st.markdown("**分布**")
+    with col5:
+        st.markdown("**插入**")
+
+    # 存储编辑后的参数
+    param_names_updated = []
+    means_updated = []
+    stds_updated = []
+    dists_updated = []
+
+    # 遍历每一行，显示可编辑控件 + 插入按钮
+    for idx, row in st.session_state.params.iterrows():
+        c1, c2, c3, c4, c5 = st.columns([2, 1, 1, 1, 0.6])
+        with c1:
+            name = st.text_input("", value=row["参数名称"], key=f"param_name_{idx}", label_visibility="collapsed")
+        with c2:
+            mean_val = st.number_input("", value=float(row["均值(Typ)"]), step=1.0, key=f"param_mean_{idx}", label_visibility="collapsed")
+        with c3:
+            std_val = st.number_input("", value=float(row["标准差(Std)"]), step=0.01, format="%.4f", key=f"param_std_{idx}", label_visibility="collapsed")
+        with c4:
+            dist_val = st.selectbox("", ["正态分布"], index=0, key=f"param_dist_{idx}", label_visibility="collapsed")
+        with c5:
+            # 插入按钮
+            if st.button("➕", key=f"insert_btn_{idx}", help=f"插入 {name} 到公式"):
+                append_param(name)
+                st.rerun()
+        param_names_updated.append(name)
+        means_updated.append(mean_val)
+        stds_updated.append(std_val)
+        dists_updated.append(dist_val)
+
+    # 更新 session_state 中的参数 DataFrame
+    updated_df = pd.DataFrame({
+        "参数名称": param_names_updated,
+        "均值(Typ)": means_updated,
+        "标准差(Std)": stds_updated,
+        "分布": dists_updated
+    })
+    st.session_state.params = updated_df
 
     # 公式定义区域
     st.markdown('<div class="section-header">📐 公式定义（设计值）</div>', unsafe_allow_html=True)
-    st.caption("点击下方参数按钮插入到公式中（参数名称需与表格完全一致）")
-
-    # 生成参数按钮行 - 使用 columns 确保每个按钮独立且 key 唯一
-    # 每行最多显示 6 个按钮
-    cols_per_row = 6
-    for i in range(0, len(param_names), cols_per_row):
-        cols = st.columns(min(cols_per_row, len(param_names) - i))
-        for idx, name in enumerate(param_names[i:i+cols_per_row]):
-            # 使用唯一 key，包含参数名和索引，避免重复
-            btn_key = f"insert_param_{i+idx}_{name.replace(' ', '_')}"
-            if cols[idx].button(f"📌 {name}", key=btn_key):
-                append_param(name)
-                st.rerun()  # 立即刷新公式框
-
-    # 输出变量名称
     output_name = st.text_input("输出变量名称", value=st.session_state.output_name, key="output_name_input")
     st.session_state.output_name = output_name if output_name.strip() else "Output"
 
-    # 公式输入框
     formula = st.text_area("计算公式", value=st.session_state.formula, height=100, key="formula_input")
     st.session_state.formula = formula
     st.caption("支持的运算: + - * / **, 括号, 函数: sqrt, exp, log, sin, cos, tan, pi, e 等")
 
     # 实时计算设计值
-    design_val = compute_design_value(edited_df, formula)
+    design_val = compute_design_value(updated_df, formula)
     if design_val is not None and not np.isnan(design_val):
         st.markdown(f"""
         <div class="design-value-card">
@@ -506,9 +565,10 @@ def main():
 
     # 蒙特卡洛模拟按钮
     if st.button("🚀 开始蒙特卡洛模拟", type="primary", use_container_width=True):
-        if edited_df.isnull().values.any():
+        if updated_df.isnull().values.any():
             st.error("参数表中存在空值，请检查！")
             return
+        param_names = updated_df["参数名称"].astype(str).tolist()
         if len(set(param_names)) != len(param_names):
             st.error("参数名称必须唯一！")
             return
@@ -517,12 +577,12 @@ def main():
             return
 
         with st.spinner("正在进行蒙特卡洛模拟..."):
-            sim_res = run_monte_carlo(edited_df, formula, n_sim, seed)
+            sim_res = run_monte_carlo(updated_df, formula, n_sim, seed)
         if sim_res is None:
             return
 
         with st.spinner("正在计算各参数贡献度..."):
-            df_contrib, contributions, param_names = sensitivity_analysis(edited_df, formula, n_sim, seed)
+            df_contrib, contributions, param_names = sensitivity_analysis(updated_df, formula, n_sim, seed)
 
         st.session_state.sim_results_raw = {
             "results": sim_res["results"],
@@ -539,7 +599,7 @@ def main():
             "param_names": sim_res["param_names"],
             "df_contrib": df_contrib,
             "contributions": contributions,
-            "params_df": edited_df,
+            "params_df": updated_df,
             "output_name": output_name,
             "formula": formula,
         }
@@ -613,7 +673,7 @@ def main():
             csv = samples_df.to_csv(index=False, float_format="%.6f")
             st.download_button("📥 下载模拟数据 (CSV)", data=csv, file_name=f"monte_carlo_data_{output_name}.csv", mime="text/csv")
 
-        report_html = generate_report(raw, usl, lsl, n_sim, seed, formula, edited_df)
+        report_html = generate_report(raw, usl, lsl, n_sim, seed, formula, updated_df)
         st.download_button("📄 下载专业报告 (HTML)", data=report_html, file_name=f"MonteCarlo_Report_{output_name}.html", mime="text/html")
 
         st.success("模拟完成！")
