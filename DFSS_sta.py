@@ -6,6 +6,8 @@ import matplotlib.pyplot as plt
 from scipy import stats
 import math
 import re
+import base64
+from io import BytesIO
 from typing import List, Dict, Any, Tuple
 
 st.set_page_config(page_title="Para_Variation - 蒙特卡洛模拟", layout="wide")
@@ -22,7 +24,7 @@ if "params" not in st.session_state:
     })
 
 if "sim_results_raw" not in st.session_state:
-    st.session_state.sim_results_raw = None  # 存储原始模拟结果数组和相关信息
+    st.session_state.sim_results_raw = None
 
 if "formula" not in st.session_state:
     st.session_state.formula = "Cell Cap * V * 7 / 1000 * 60 / (Suction P + Brush P + Other(Pump+display))"
@@ -100,6 +102,7 @@ def run_monte_carlo(params_df: pd.DataFrame,
 
     return {
         "results": results,
+        "samples": samples,  # 保存所有参数样本，用于预览
         "mean": mean_out,
         "std": std_out,
         "max": max_out,
@@ -145,7 +148,7 @@ def sensitivity_analysis(params_df: pd.DataFrame,
         "贡献百分比": contributions
     })
     df_contrib = df_contrib.sort_values("贡献百分比", ascending=False).reset_index(drop=True)
-    df_contrib["贡献百分比"] = df_contrib["贡献百分比"].apply(lambda x: f"{x:.2%}")
+    df_contrib["贡献百分比"] = df_contrib["贡献百分比"].apply(lambda x: f"{x:.6%}")
     return df_contrib, contributions, param_names
 
 # 绘图函数：直方图
@@ -156,8 +159,8 @@ def plot_histogram(results, bin_centers, hist_counts, x_pdf, pdf_theory, usl, ls
     bin_width = bin_centers[1] - bin_centers[0]
     area = np.sum(hist_counts) * bin_width
     ax.plot(x_pdf, pdf_theory * area, 'r-', linewidth=2, label="理论正态分布")
-    ax.axvline(usl, color='green', linestyle='--', label=f"USL = {usl}")
-    ax.axvline(lsl, color='orange', linestyle='--', label=f"LSL = {lsl}")
+    ax.axvline(usl, color='green', linestyle='--', label=f"USL = {usl:.4f}")
+    ax.axvline(lsl, color='orange', linestyle='--', label=f"LSL = {lsl:.4f}")
     ax.set_xlabel(output_name)
     ax.set_ylabel("频次")
     ax.set_title(f"{output_name} 分布直方图")
@@ -166,7 +169,6 @@ def plot_histogram(results, bin_centers, hist_counts, x_pdf, pdf_theory, usl, ls
 
 # 绘图函数：水平条形图（贡献百分比）
 def plot_contribution_horizontal(contributions: List[float], param_names: List[str], output_name: str):
-    # 过滤掉贡献为0的项
     non_zero = [(p, c) for p, c in zip(param_names, contributions) if c > 0]
     if not non_zero:
         fig, ax = plt.subplots(figsize=(8, 4))
@@ -174,16 +176,14 @@ def plot_contribution_horizontal(contributions: List[float], param_names: List[s
         ax.set_title(f"设计参数对 {output_name} 影响百分比")
         return fig
     names, vals = zip(*non_zero)
-    # 按贡献值升序排列（水平条形图从下往上）
     sorted_indices = np.argsort(vals)
     names = [names[i] for i in sorted_indices]
     vals = [vals[i] for i in sorted_indices]
 
     fig, ax = plt.subplots(figsize=(8, max(4, len(names)*0.4)))
     bars = ax.barh(names, vals, color='steelblue')
-    # 添加数据标签
     for bar, val in zip(bars, vals):
-        ax.text(val + 0.01, bar.get_y() + bar.get_height()/2, f'{val:.2%}',
+        ax.text(val + 0.01, bar.get_y() + bar.get_height()/2, f'{val:.6%}',
                 va='center', fontsize=9)
     ax.set_xlabel("贡献百分比")
     ax.set_title(f"设计参数对 {output_name} 影响百分比")
@@ -196,7 +196,7 @@ def compute_cpk_ppm(results: np.ndarray, usl: float, lsl: float):
     mean_out = np.mean(results)
     std_out = np.std(results, ddof=1)
     if std_out == 0:
-        cpk = 0
+        cpk = 0.0
     else:
         cpk = min((usl - mean_out) / (3 * std_out), (mean_out - lsl) / (3 * std_out))
     failures_up = np.sum(results > usl) / len(results) * 1e6
@@ -204,17 +204,146 @@ def compute_cpk_ppm(results: np.ndarray, usl: float, lsl: float):
     failures_all = failures_up + failures_dn
     return cpk, failures_all, failures_up, failures_dn
 
+# 生成 HTML 报告
+def generate_report(raw, usl, lsl, n_sim, seed, formula, params_df):
+    results = raw["results"]
+    output_name = raw["output_name"]
+    cpk, failures_all, failures_up, failures_dn = compute_cpk_ppm(results, usl, lsl)
+
+    # 将 matplotlib 图表转为 base64
+    fig_hist = plot_histogram(results, raw["bin_centers"], raw["hist_counts"],
+                              raw["x_pdf"], raw["pdf_theory"], usl, lsl, output_name)
+    buf_hist = BytesIO()
+    fig_hist.savefig(buf_hist, format="png", dpi=150, bbox_inches="tight")
+    hist_b64 = base64.b64encode(buf_hist.getvalue()).decode()
+    plt.close(fig_hist)
+
+    contributions = raw["contributions"]
+    param_names = raw["param_names"]
+    fig_barh = plot_contribution_horizontal(contributions, param_names, output_name)
+    buf_barh = BytesIO()
+    fig_barh.savefig(buf_barh, format="png", dpi=150, bbox_inches="tight")
+    barh_b64 = base64.b64encode(buf_barh.getvalue()).decode()
+    plt.close(fig_barh)
+
+    # 贡献百分比数据表
+    df_contrib = raw["df_contrib"].copy()
+    df_contrib["贡献百分比"] = df_contrib["贡献百分比"].apply(lambda x: f"{float(x.strip('%'))/100:.6%}")  # 保持高精度
+
+    # 前100行模拟数据预览
+    samples_df = pd.DataFrame(raw["samples"], columns=param_names)
+    samples_df[output_name] = results
+    preview_df = samples_df.head(100)
+
+    # 参数表 HTML
+    params_html = params_df.to_html(index=False, classes="dataframe", border=1, justify="center")
+    # 贡献表 HTML
+    contrib_html = df_contrib.to_html(index=False, classes="dataframe", border=1, justify="center")
+    # 预览表 HTML
+    preview_html = preview_df.to_html(index=False, classes="dataframe", border=1, justify="center", float_format="%.6f")
+
+    # 自定义 CSS 样式：黑色边框、居中、专业字体
+    css = """
+    <style>
+        body { font-family: 'Segoe UI', Arial, sans-serif; margin: 20px; }
+        h1 { color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 5px; }
+        h2 { color: #34495e; margin-top: 25px; }
+        h3 { color: #555; }
+        .report-section { margin-bottom: 30px; }
+        table.dataframe {
+            border-collapse: collapse;
+            width: 100%;
+            margin: 10px 0;
+            font-size: 12pt;
+        }
+        table.dataframe th, table.dataframe td {
+            border: 1px solid black;
+            padding: 8px;
+            text-align: center;
+            vertical-align: middle;
+        }
+        table.dataframe th {
+            background-color: #f2f2f2;
+            font-weight: bold;
+        }
+        .stats-table td, .stats-table th { text-align: center; }
+        .footer { margin-top: 40px; font-size: 10pt; color: #7f8c8d; text-align: center; }
+    </style>
+    """
+
+    # 统计表
+    stats_html = f"""
+    <table class="dataframe stats-table">
+        <tr><th>统计量</th><th>数值</th></tr>
+        <tr><td>均值</td><td>{raw['mean']:.8f}</td></tr>
+        <tr><td>标准差</td><td>{raw['std']:.8f}</td></tr>
+        <tr><td>最大值</td><td>{raw['max']:.8f}</td></tr>
+        <tr><td>最小值</td><td>{raw['min']:.8f}</td></tr>
+        <tr><td>Cpk</td><td>{cpk:.6f}</td></tr>
+        <tr><td>Failure All (ppm)</td><td>{failures_all:.6f}</td></tr>
+        <tr><td>Failure Up (ppm)</td><td>{failures_up:.6f}</td></tr>
+        <tr><td>Failure Dn (ppm)</td><td>{failures_dn:.6f}</td></tr>
+    </table>
+    """
+
+    # 组装 HTML
+    report_html = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="UTF-8">
+        <title>蒙特卡洛模拟报告 - {output_name}</title>
+        {css}
+    </head>
+    <body>
+        <h1>蒙特卡洛模拟分析报告</h1>
+        <div class="report-section">
+            <h2>1. 模拟设置</h2>
+            <ul>
+                <li><strong>输出变量名称：</strong> {output_name}</li>
+                <li><strong>公式：</strong> {formula}</li>
+                <li><strong>模拟次数：</strong> {n_sim}</li>
+                <li><strong>规格上限 (USL)：</strong> {usl:.6f}</li>
+                <li><strong>规格下限 (LSL)：</strong> {lsl:.6f}</li>
+                <li><strong>随机种子：</strong> {seed}</li>
+            </ul>
+        </div>
+        <div class="report-section">
+            <h2>2. 输入参数表</h2>
+            {params_html}
+        </div>
+        <div class="report-section">
+            <h2>3. 模拟结果统计</h2>
+            {stats_html}
+        </div>
+        <div class="report-section">
+            <h2>4. 分布直方图</h2>
+            <img src="data:image/png;base64,{hist_b64}" alt="Distribution Histogram" style="max-width:100%;">
+        </div>
+        <div class="report-section">
+            <h2>5. 设计参数对 {output_name} 影响百分比</h2>
+            <img src="data:image/png;base64,{barh_b64}" alt="Contribution Bar Chart" style="max-width:100%;">
+            <h3>详细数据表</h3>
+            {contrib_html}
+        </div>
+        <div class="report-section">
+            <h2>6. 模拟数据预览（前100行）</h2>
+            {preview_html}
+        </div>
+        <div class="footer">
+            报告生成时间：{pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S")}
+        </div>
+    </body>
+    </html>
+    """
+    return report_html
+
 # 主程序
 def main():
     st.sidebar.header("⚙️ 模拟设置")
     n_sim = st.sidebar.number_input("模拟次数 (Trail number)", min_value=100, max_value=100000, value=1000, step=100)
-    # 使用 session_state 存储 usl/lsl，并设置 on_change 回调来触发重新计算
-    def on_limits_change():
-        if st.session_state.sim_results_raw is not None:
-            # 重新计算 CPK 和 PPM 并更新显示（无需 rerun，因为后续会读取最新值）
-            pass
-    usl = st.sidebar.number_input("规格上限 (Upper L)", value=st.session_state.usl, step=1.0, key="usl_input", on_change=on_limits_change)
-    lsl = st.sidebar.number_input("规格下限 (Lower L)", value=st.session_state.lsl, step=1.0, key="lsl_input", on_change=on_limits_change)
+    usl = st.sidebar.number_input("规格上限 (Upper L)", value=st.session_state.usl, step=1.0, key="usl_input")
+    lsl = st.sidebar.number_input("规格下限 (Lower L)", value=st.session_state.lsl, step=1.0, key="lsl_input")
     st.session_state.usl = usl
     st.session_state.lsl = lsl
     seed = st.sidebar.number_input("随机种子", value=42, step=1)
@@ -259,9 +388,9 @@ def main():
         with st.spinner("正在计算各参数贡献度..."):
             df_contrib, contributions, param_names = sensitivity_analysis(edited_df, formula, n_sim, seed)
 
-        # 保存原始结果（用于实时更新 CPK/PPM）
         st.session_state.sim_results_raw = {
             "results": sim_res["results"],
+            "samples": sim_res["samples"],
             "mean": sim_res["mean"],
             "std": sim_res["std"],
             "max": sim_res["max"],
@@ -284,26 +413,45 @@ def main():
         raw = st.session_state.sim_results_raw
         results = raw["results"]
         output_name = raw["output_name"]
-        # 根据当前 USL/LSL 实时计算 CPK 和 PPM
         cpk, failures_all, failures_up, failures_dn = compute_cpk_ppm(results, usl, lsl)
 
         st.header(f"📈 模拟结果: {output_name}")
-        # 第一行：基本统计量
         col1, col2, col3 = st.columns(3)
-        col1.metric(f"{output_name} 均值", f"{raw['mean']:.4f}")
-        col1.metric(f"{output_name} 标准差", f"{raw['std']:.4f}")
-        col2.metric("最大值", f"{raw['max']:.4f}")
-        col2.metric("最小值", f"{raw['min']:.4f}")
+        col1.metric(f"{output_name} 均值", f"{raw['mean']:.8f}")
+        col1.metric(f"{output_name} 标准差", f"{raw['std']:.8f}")
+        col2.metric("最大值", f"{raw['max']:.8f}")
+        col2.metric("最小值", f"{raw['min']:.8f}")
 
-        # 第二行：Failure ppm level 表格（仿Excel样式）
+        # Failure ppm level 表格（HTML 黑色边框、居中）
         st.subheader("Failure ppm level")
-        ppm_df = pd.DataFrame({
-            "CPK": [f"{cpk:.2f}"],
-            "Failure All": [f"{failures_all:.2f}"],
-            "Failure Up": [f"{failures_up:.2f}"],
-            "Failure Dn": [f"{failures_dn:.2f}"]
-        })
-        st.table(ppm_df)  # 使用 table 更接近原图风格
+        ppm_html = f"""
+        <style>
+        .ppm-table {{
+            border-collapse: collapse;
+            width: auto;
+            margin: 0 auto;
+        }}
+        .ppm-table th, .ppm-table td {{
+            border: 2px solid black;
+            padding: 8px 16px;
+            text-align: center;
+            font-weight: normal;
+        }}
+        .ppm-table th {{
+            background-color: #f0f0f0;
+        }}
+        </style>
+        <table class="ppm-table">
+            <tr><th>CPK</th><th>Failure All</th><th>Failure Up</th><th>Failure Dn</th></tr>
+            <tr>
+                <td>{cpk:.6f}</td>
+                <td>{failures_all:.6f}</td>
+                <td>{failures_up:.6f}</td>
+                <td>{failures_dn:.6f}</td>
+            </tr>
+        </table>
+        """
+        st.markdown(ppm_html, unsafe_allow_html=True)
 
         # 分布直方图
         st.subheader("分布直方图")
@@ -318,18 +466,31 @@ def main():
         fig_barh = plot_contribution_horizontal(contributions, param_names, output_name)
         st.pyplot(fig_barh)
 
-        # 可选：显示贡献百分比数据表
         with st.expander("查看贡献百分比数据表"):
             st.dataframe(raw["df_contrib"], use_container_width=True)
 
-        with st.expander("查看模拟数据预览"):
-            means = raw["params_df"]["均值(Typ)"].values.astype(float)
-            stds = raw["params_df"]["标准差(Std)"].values.astype(float)
-            np.random.seed(seed)
-            samples = np.random.normal(loc=means, scale=stds, size=(min(100, n_sim), len(param_names)))
-            df_samples = pd.DataFrame(samples, columns=param_names)
-            df_samples[output_name] = results[:100] if len(results) >= 100 else np.pad(results, (0,100-len(results)), constant_values=np.nan)
-            st.dataframe(df_samples, use_container_width=True)
+        # 模拟数据预览：显示全部数据（带滚动）
+        with st.expander("查看全部模拟数据"):
+            samples_df = pd.DataFrame(raw["samples"], columns=param_names)
+            samples_df[output_name] = results
+            st.dataframe(samples_df, use_container_width=True, height=400)
+            # 提供 CSV 下载
+            csv = samples_df.to_csv(index=False)
+            st.download_button(
+                label="📥 下载模拟数据 (CSV)",
+                data=csv,
+                file_name=f"monte_carlo_data_{output_name}.csv",
+                mime="text/csv"
+            )
+
+        # 报告下载
+        report_html = generate_report(raw, usl, lsl, n_sim, seed, formula, edited_df)
+        st.download_button(
+            label="📄 下载专业报告 (HTML)",
+            data=report_html,
+            file_name=f"MonteCarlo_Report_{output_name}.html",
+            mime="text/html"
+        )
 
         st.success("模拟完成！")
 
