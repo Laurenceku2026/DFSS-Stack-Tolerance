@@ -10,9 +10,83 @@ import base64
 from io import BytesIO
 from typing import List, Dict, Any, Tuple, Optional
 
+# 页面配置
 st.set_page_config(page_title="Para_Variation - 蒙特卡洛模拟", layout="wide")
-st.title("📊 Para_Variation - 基于蒙特卡洛模拟分析")
-st.markdown("根据输入参数的分布进行随机抽样，计算用户定义的公式结果，分析输出分布及各参数贡献度。")
+
+# 自定义 CSS 优化全局样式
+st.markdown("""
+<style>
+    /* 主标题 */
+    .main-title {
+        font-size: 2.5rem;
+        font-weight: 600;
+        color: #1f3a93;
+        margin-bottom: 1rem;
+    }
+    /* 副标题/区域标题 */
+    .section-header {
+        font-size: 1.5rem;
+        font-weight: 500;
+        color: #2c3e50;
+        border-left: 5px solid #3498db;
+        padding-left: 15px;
+        margin: 20px 0 15px 0;
+    }
+    /* 指标卡片 */
+    .metric-card {
+        background-color: #f8f9fa;
+        border-radius: 10px;
+        padding: 15px;
+        text-align: center;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .metric-label {
+        font-size: 1rem;
+        color: #6c757d;
+        margin-bottom: 5px;
+    }
+    .metric-value {
+        font-size: 1.8rem;
+        font-weight: 600;
+        color: #2c3e50;
+    }
+    /* 表格样式 */
+    .ppm-table {
+        border-collapse: collapse;
+        width: 100%;
+        margin: 0 auto;
+    }
+    .ppm-table th, .ppm-table td {
+        border: 2px solid #000000;
+        padding: 10px 16px;
+        text-align: center;
+        font-size: 1rem;
+    }
+    .ppm-table th {
+        background-color: #e9ecef;
+        font-weight: 600;
+    }
+    /* 侧边栏字体微调 */
+    .css-1d391kg {
+        font-size: 0.9rem;
+    }
+    /* 按钮样式 */
+    .stButton button {
+        background-color: #3498db;
+        color: white;
+        font-weight: 500;
+        border-radius: 5px;
+    }
+    .stButton button:hover {
+        background-color: #2980b9;
+    }
+    /* 数据表格滚动条 */
+    .dataframe-container {
+        max-height: 400px;
+        overflow-y: auto;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 # 初始化 session state
 if "params" not in st.session_state:
@@ -32,13 +106,12 @@ if "formula" not in st.session_state:
 if "output_name" not in st.session_state:
     st.session_state.output_name = "Runtime"
 
-# 规格限字符串（允许空字符串）
 if "usl_str" not in st.session_state:
     st.session_state.usl_str = "40.0"
 if "lsl_str" not in st.session_state:
     st.session_state.lsl_str = "30.0"
 
-# 辅助函数：将字符串转换为 float，无效则返回 None
+# 辅助函数
 def parse_limit(s: str) -> Optional[float]:
     if s is None or s.strip() == "":
         return None
@@ -47,7 +120,11 @@ def parse_limit(s: str) -> Optional[float]:
     except ValueError:
         return None
 
-# 回调函数：同步规格限字符串
+def format_metric(value, unit=""):
+    if value is None:
+        return "-"
+    return f"{value:.2f}{unit}"
+
 def sync_usl_from_main():
     st.session_state.usl_str = st.session_state.main_usl
 def sync_lsl_from_main():
@@ -57,7 +134,6 @@ def sync_usl_from_sidebar():
 def sync_lsl_from_sidebar():
     st.session_state.lsl_str = st.session_state.lsl_sidebar
 
-# 回调函数：追加参数名到公式
 def append_param(param_name: str):
     current = st.session_state.formula
     if current and not current.endswith((' ', '+')):
@@ -65,7 +141,6 @@ def append_param(param_name: str):
     else:
         st.session_state.formula = current + param_name
 
-# 安全计算公式（支持任意参数名）
 def safe_eval_with_mapping(expr: str, param_names: List[str], context_values: List[float]) -> float:
     temp_names = [f"__p{i}__" for i in range(len(param_names))]
     sorted_params = sorted(zip(param_names, temp_names), key=lambda x: len(x[0]), reverse=True)
@@ -87,11 +162,7 @@ def safe_eval_with_mapping(expr: str, param_names: List[str], context_values: Li
         st.error(f"公式计算错误: {e}\n请检查参数名是否与表格中的名称完全一致。")
         return np.nan
 
-# 蒙特卡洛主模拟
-def run_monte_carlo(params_df: pd.DataFrame,
-                    formula: str,
-                    n_sim: int,
-                    seed: int = 42) -> Dict[str, Any]:
+def run_monte_carlo(params_df: pd.DataFrame, formula: str, n_sim: int, seed: int = 42) -> Dict[str, Any]:
     np.random.seed(seed)
     n_params = len(params_df)
     param_names = params_df["参数名称"].astype(str).tolist()
@@ -135,11 +206,7 @@ def run_monte_carlo(params_df: pd.DataFrame,
         "param_names": param_names,
     }
 
-# 贡献度分析
-def sensitivity_analysis(params_df: pd.DataFrame,
-                         formula: str,
-                         n_sim: int,
-                         seed: int = 42) -> Tuple[pd.DataFrame, List[float], List[str]]:
+def sensitivity_analysis(params_df: pd.DataFrame, formula: str, n_sim: int, seed: int = 42) -> Tuple[pd.DataFrame, List[float], List[str]]:
     np.random.seed(seed)
     n_params = len(params_df)
     param_names = params_df["参数名称"].astype(str).tolist()
@@ -171,37 +238,31 @@ def sensitivity_analysis(params_df: pd.DataFrame,
     df_contrib["贡献百分比_显示"] = df_contrib["贡献百分比"].apply(lambda x: f"{x:.1%}")
     return df_contrib, contributions, param_names
 
-# 绘图函数：直方图（右上角统计信息，图例紧接下方）
-def plot_histogram(results, bin_centers, hist_counts, x_pdf, pdf_theory,
-                   usl, lsl, output_name, n_sim):
-    fig, ax = plt.subplots(figsize=(10, 6))
+def plot_histogram(results, bin_centers, hist_counts, x_pdf, pdf_theory, usl, lsl, output_name, n_sim):
+    fig, ax = plt.subplots(figsize=(11, 6), dpi=100)
     ax.bar(bin_centers, hist_counts, width=(bin_centers[1]-bin_centers[0])*0.9,
-           alpha=0.6, label="Histogram", color="steelblue")
+           alpha=0.6, label="Histogram", color="#3498db")
     bin_width = bin_centers[1] - bin_centers[0]
     area = np.sum(hist_counts) * bin_width
     ax.plot(x_pdf, pdf_theory * area, 'r-', linewidth=2, label="Gaussian Fitting")
 
-    # 绘制规格线（仅当值不为 None）
     if usl is not None:
-        ax.axvline(usl, color='green', linestyle='--', label=f"USL = {usl:.2f}")
+        ax.axvline(usl, color='green', linestyle='--', linewidth=1.5, label=f"USL = {usl:.2f}")
     if lsl is not None:
-        ax.axvline(lsl, color='orange', linestyle='--', label=f"LSL = {lsl:.2f}")
+        ax.axvline(lsl, color='orange', linestyle='--', linewidth=1.5, label=f"LSL = {lsl:.2f}")
 
-    # 右上角统计信息文本框
     stats_text = f"NO.={n_sim}\nAVE={np.mean(results):.6f}\nSTD={np.std(results, ddof=1):.6f}\nMAX={np.max(results):.6f}\nMIN={np.min(results):.6f}"
     ax.text(0.95, 0.95, stats_text, transform=ax.transAxes, fontsize=9,
             verticalalignment='top', horizontalalignment='right',
-            bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
+            bbox=dict(boxstyle='round', facecolor='white', alpha=0.8, edgecolor='gray'))
 
-    # 图例紧接在统计信息下方（右上角偏下）
-    ax.legend(loc='upper right', bbox_to_anchor=(0.95, 0.75), fontsize=9)
-
-    ax.set_xlabel(output_name)
-    ax.set_ylabel("Frequency")
-    ax.set_title(f"{output_name} Distribution")
+    ax.legend(loc='upper right', bbox_to_anchor=(0.95, 0.72), fontsize=9)
+    ax.set_xlabel(output_name, fontsize=11)
+    ax.set_ylabel("Frequency", fontsize=11)
+    ax.set_title(f"{output_name} Distribution", fontsize=13, fontweight='bold')
+    ax.grid(axis='y', linestyle='--', alpha=0.3)
     return fig
 
-# 绘图函数：水平条形图（无图例，百分比一位小数）
 def plot_contribution_horizontal(contributions: List[float], param_names: List[str], output_name: str):
     non_zero = [(p, c) for p, c in zip(param_names, contributions) if c > 0]
     if not non_zero:
@@ -214,20 +275,18 @@ def plot_contribution_horizontal(contributions: List[float], param_names: List[s
     names = [names[i] for i in sorted_indices]
     vals = [vals[i] for i in sorted_indices]
 
-    fig, ax = plt.subplots(figsize=(8, max(4, len(names)*0.4)))
-    bars = ax.barh(names, vals, color='steelblue')
+    fig, ax = plt.subplots(figsize=(9, max(4, len(names)*0.4)))
+    bars = ax.barh(names, vals, color='#2ecc71')
     for bar, val in zip(bars, vals):
         ax.text(val + 0.01, bar.get_y() + bar.get_height()/2, f'{val:.1%}',
                 va='center', fontsize=9)
-    ax.set_xlabel("影响百分比")
-    ax.set_title(f"{output_name} 设计参数影响百分比")
+    ax.set_xlabel("影响百分比", fontsize=11)
+    ax.set_title(f"{output_name} 设计参数影响百分比", fontsize=13, fontweight='bold')
     ax.set_xlim(0, max(vals) * 1.15)
-    ax.grid(axis='x', linestyle='--', alpha=0.7)
-    # 确保没有图例
-    ax.legend().remove() if ax.get_legend() else None
+    ax.grid(axis='x', linestyle='--', alpha=0.5)
+    ax.legend().remove()
     return fig
 
-# 计算 CPK 和 PPM（支持单侧或双侧规格限）
 def compute_cpk_ppm(results: np.ndarray, usl: Optional[float], lsl: Optional[float]):
     mean_out = np.mean(results)
     std_out = np.std(results, ddof=1)
@@ -255,7 +314,6 @@ def compute_cpk_ppm(results: np.ndarray, usl: Optional[float], lsl: Optional[flo
 
     return cpk, failures_all, failures_up, failures_dn
 
-# 生成 HTML 报告（兼容单侧规格限）
 def generate_report(raw, usl, lsl, n_sim, seed, formula, params_df):
     results = raw["results"]
     output_name = raw["output_name"]
@@ -324,7 +382,6 @@ def generate_report(raw, usl, lsl, n_sim, seed, formula, params_df):
         <tr><td>最小值</td><td>{raw['min']:.2f}</td></tr>
     </table>
     """
-
     if cpk is not None:
         stats_html += f"""
         <table class="dataframe stats-table">
@@ -386,23 +443,26 @@ def generate_report(raw, usl, lsl, n_sim, seed, formula, params_df):
 
 # 主程序
 def main():
-    st.sidebar.header("⚙️ 模拟设置")
-    n_sim = st.sidebar.number_input("模拟次数 (Trail number)", min_value=100, max_value=100000, value=1000, step=100)
+    # 标题
+    st.markdown('<div class="main-title">📊 Para_Variation - 基于蒙特卡洛模拟分析</div>', unsafe_allow_html=True)
+    st.markdown("根据输入参数的分布进行随机抽样，计算用户定义的公式结果，分析输出分布及各参数贡献度。")
 
-    # 规格限输入（使用 text_input，允许空值）
-    usl_sidebar = st.sidebar.text_input("规格上限 (USL) - 可留空", value=st.session_state.usl_str, key="usl_sidebar", on_change=sync_usl_from_sidebar)
-    lsl_sidebar = st.sidebar.text_input("规格下限 (LSL) - 可留空", value=st.session_state.lsl_str, key="lsl_sidebar", on_change=sync_lsl_from_sidebar)
-    st.session_state.usl_str = usl_sidebar
-    st.session_state.lsl_str = lsl_sidebar
+    # 侧边栏设置
+    with st.sidebar:
+        st.markdown("## ⚙️ 模拟设置")
+        n_sim = st.number_input("模拟次数 (Trail number)", min_value=100, max_value=100000, value=1000, step=100)
+        st.markdown("#### 规格限（可留空）")
+        usl_sidebar = st.text_input("规格上限 (USL)", value=st.session_state.usl_str, key="usl_sidebar", on_change=sync_usl_from_sidebar)
+        lsl_sidebar = st.text_input("规格下限 (LSL)", value=st.session_state.lsl_str, key="lsl_sidebar", on_change=sync_lsl_from_sidebar)
+        st.session_state.usl_str = usl_sidebar
+        st.session_state.lsl_str = lsl_sidebar
+        seed = st.number_input("随机种子", value=42, step=1)
 
-    seed = st.sidebar.number_input("随机种子", value=42, step=1)
-
-    st.markdown("---")
-    st.subheader("📝 参数输入")
+    # 主区域
+    st.markdown('<div class="section-header">📝 参数输入</div>', unsafe_allow_html=True)
     edited_df = st.data_editor(st.session_state.params, num_rows="dynamic", use_container_width=True)
 
-    st.markdown("---")
-    st.subheader("📐 公式定义")
+    st.markdown('<div class="section-header">📐 公式定义</div>', unsafe_allow_html=True)
     output_name = st.text_input("输出变量名称", value=st.session_state.output_name, key="output_name_input")
     st.session_state.output_name = output_name if output_name.strip() else "Output"
 
@@ -418,7 +478,7 @@ def main():
     st.session_state.formula = formula
     st.caption("支持的运算: + - * / **, 括号, 函数: sqrt, exp, log, sin, cos, tan, pi, e 等")
 
-    if st.button("🚀 开始蒙特卡洛模拟", type="primary"):
+    if st.button("🚀 开始蒙特卡洛模拟", type="primary", use_container_width=True):
         if edited_df.isnull().values.any():
             st.error("参数表中存在空值，请检查！")
             return
@@ -457,43 +517,76 @@ def main():
             "formula": formula,
         }
 
-    # 显示结果（如果已有模拟结果）
     if st.session_state.sim_results_raw is not None:
         raw = st.session_state.sim_results_raw
         results = raw["results"]
         output_name = raw["output_name"]
-
-        # 解析规格限
         usl = parse_limit(st.session_state.usl_str)
         lsl = parse_limit(st.session_state.lsl_str)
-
         cpk, failures_all, failures_up, failures_dn = compute_cpk_ppm(results, usl, lsl)
 
-        st.header(f"📈 模拟结果: {output_name}")
+        # 主要统计卡片
+        st.markdown(f'<div class="section-header">📈 模拟结果: {output_name}</div>', unsafe_allow_html=True)
         col1, col2, col3 = st.columns(3)
-        col1.metric(f"{output_name} 均值", f"{raw['mean']:.2f}")
-        col1.metric(f"{output_name} 标准差", f"{raw['std']:.2f}")
-        col2.metric("最大值", f"{raw['max']:.2f}")
-        col2.metric("最小值", f"{raw['min']:.2f}")
+        with col1:
+            st.markdown(f"""
+            <div class="metric-card">
+                <div class="metric-label">{output_name} 均值</div>
+                <div class="metric-value">{raw['mean']:.2f}</div>
+            </div>
+            """, unsafe_allow_html=True)
+            st.markdown(f"""
+            <div class="metric-card">
+                <div class="metric-label">{output_name} 标准差</div>
+                <div class="metric-value">{raw['std']:.2f}</div>
+            </div>
+            """, unsafe_allow_html=True)
+        with col2:
+            st.markdown(f"""
+            <div class="metric-card">
+                <div class="metric-label">最大值</div>
+                <div class="metric-value">{raw['max']:.2f}</div>
+            </div>
+            """, unsafe_allow_html=True)
+            st.markdown(f"""
+            <div class="metric-card">
+                <div class="metric-label">最小值</div>
+                <div class="metric-value">{raw['min']:.2f}</div>
+            </div>
+            """, unsafe_allow_html=True)
+        with col3:
+            if cpk is not None:
+                st.markdown(f"""
+                <div class="metric-card">
+                    <div class="metric-label">Cpk</div>
+                    <div class="metric-value">{cpk:.2f}</div>
+                </div>
+                """, unsafe_allow_html=True)
+            else:
+                st.markdown(f"""
+                <div class="metric-card">
+                    <div class="metric-label">Cpk</div>
+                    <div class="metric-value">-</div>
+                </div>
+                """, unsafe_allow_html=True)
 
-        # Failure ppm level 区域（主界面也提供规格限输入，与侧边栏同步）
-        st.subheader("Failure ppm level")
+        # Failure ppm level 区域
+        st.markdown('<div class="section-header">Failure ppm level</div>', unsafe_allow_html=True)
         st.caption("💡 可调节上下限以实时观察PPM水平的变化（留空表示无此限）")
         col_left, col_right = st.columns([1, 2])
         with col_left:
-            # 主界面规格限输入（text_input）
             main_usl = st.text_input("规格上限 (USL)", value=st.session_state.usl_str, key="main_usl", on_change=sync_usl_from_main)
             main_lsl = st.text_input("规格下限 (LSL)", value=st.session_state.lsl_str, key="main_lsl", on_change=sync_lsl_from_main)
-            # 更新 session state（已在回调中完成，但需要同步）
             st.session_state.usl_str = main_usl
             st.session_state.lsl_str = main_lsl
             usl = parse_limit(main_usl)
             lsl = parse_limit(main_lsl)
-            # 重新计算 CPK/PPM
             cpk, failures_all, failures_up, failures_dn = compute_cpk_ppm(results, usl, lsl)
         with col_right:
-            # 构建表格（根据是否有规格限显示）
             if cpk is not None:
+                # 安全格式化数值，避免 None 传入 f-string
+                def fmt(val):
+                    return f"{val:.2f}" if val is not None else "-"
                 ppm_html = f"""
                 <style>
                 .ppm-table {{
@@ -503,21 +596,22 @@ def main():
                 }}
                 .ppm-table th, .ppm-table td {{
                     border: 2px solid black;
-                    padding: 8px 16px;
+                    padding: 10px 16px;
                     text-align: center;
-                    font-weight: normal;
+                    font-size: 1rem;
                 }}
                 .ppm-table th {{
-                    background-color: #f0f0f0;
+                    background-color: #e9ecef;
+                    font-weight: 600;
                 }}
                 </style>
                 <table class="ppm-table">
                     <tr><th>CPK</th><th>Failure All</th><th>Failure Up</th><th>Failure Dn</th></tr>
                     <tr>
-                        <td>{cpk:.2f}</td>
-                        <td>{failures_all:.2f if failures_all is not None else '-'}</td>
-                        <td>{failures_up:.2f if failures_up is not None else '-'}</td>
-                        <td>{failures_dn:.2f if failures_dn is not None else '-'}</td>
+                        <td>{fmt(cpk)}</td>
+                        <td>{fmt(failures_all)}</td>
+                        <td>{fmt(failures_up)}</td>
+                        <td>{fmt(failures_dn)}</td>
                     </tr>
                 </table>
                 """
@@ -526,13 +620,13 @@ def main():
                 st.info("未提供任何规格限，无法计算CPK和PPM。")
 
         # 分布直方图
-        st.subheader("分布直方图")
+        st.markdown('<div class="section-header">分布直方图</div>', unsafe_allow_html=True)
         fig_hist = plot_histogram(results, raw["bin_centers"], raw["hist_counts"],
                                   raw["x_pdf"], raw["pdf_theory"], usl, lsl, output_name, n_sim)
         st.pyplot(fig_hist)
 
         # 设计参数影响百分比
-        st.subheader(f"设计参数对 {output_name} 影响百分比")
+        st.markdown(f'<div class="section-header">设计参数对 {output_name} 影响百分比</div>', unsafe_allow_html=True)
         contributions = raw["contributions"]
         param_names = raw["param_names"]
         fig_barh = plot_contribution_horizontal(contributions, param_names, output_name)
