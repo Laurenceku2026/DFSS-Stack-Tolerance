@@ -16,14 +16,12 @@ st.set_page_config(page_title="Para_Variation - 蒙特卡洛模拟", layout="wid
 # 自定义 CSS 优化全局样式
 st.markdown("""
 <style>
-    /* 主标题 */
     .main-title {
         font-size: 2.5rem;
         font-weight: 600;
         color: #1f3a93;
         margin-bottom: 1rem;
     }
-    /* 副标题/区域标题 */
     .section-header {
         font-size: 1.5rem;
         font-weight: 500;
@@ -32,7 +30,6 @@ st.markdown("""
         padding-left: 15px;
         margin: 20px 0 15px 0;
     }
-    /* 指标卡片 */
     .metric-card {
         background-color: #f8f9fa;
         border-radius: 10px;
@@ -50,7 +47,6 @@ st.markdown("""
         font-weight: 600;
         color: #2c3e50;
     }
-    /* 表格样式 */
     .ppm-table {
         border-collapse: collapse;
         width: 100%;
@@ -66,11 +62,6 @@ st.markdown("""
         background-color: #e9ecef;
         font-weight: 600;
     }
-    /* 侧边栏字体微调 */
-    .css-1d391kg {
-        font-size: 0.9rem;
-    }
-    /* 按钮样式 */
     .stButton button {
         background-color: #3498db;
         color: white;
@@ -79,11 +70,6 @@ st.markdown("""
     }
     .stButton button:hover {
         background-color: #2980b9;
-    }
-    /* 数据表格滚动条 */
-    .dataframe-container {
-        max-height: 400px;
-        overflow-y: auto;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -111,7 +97,6 @@ if "usl_str" not in st.session_state:
 if "lsl_str" not in st.session_state:
     st.session_state.lsl_str = "30.0"
 
-# 辅助函数
 def parse_limit(s: str) -> Optional[float]:
     if s is None or s.strip() == "":
         return None
@@ -119,11 +104,6 @@ def parse_limit(s: str) -> Optional[float]:
         return float(s)
     except ValueError:
         return None
-
-def format_metric(value, unit=""):
-    if value is None:
-        return "-"
-    return f"{value:.2f}{unit}"
 
 def sync_usl_from_main():
     st.session_state.usl_str = st.session_state.main_usl
@@ -373,6 +353,9 @@ def generate_report(raw, usl, lsl, n_sim, seed, formula, params_df):
     </style>
     """
 
+    def fmt(val):
+        return f"{val:.2f}" if val is not None else "-"
+
     stats_html = f"""
     <table class="dataframe stats-table">
         <tr><th>统计量</th><th>数值</th></tr>
@@ -386,7 +369,7 @@ def generate_report(raw, usl, lsl, n_sim, seed, formula, params_df):
         stats_html += f"""
         <table class="dataframe stats-table">
             <tr><th>Cpk</th><th>Failure All (ppm)</th><th>Failure Up (ppm)</th><th>Failure Dn (ppm)</th></tr>
-            <tr><td>{cpk:.2f}</td><td>{failures_all:.2f if failures_all is not None else '-'}</td><td>{failures_up:.2f if failures_up is not None else '-'}</td><td>{failures_dn:.2f if failures_dn is not None else '-'}</td></tr>
+            <tr><td>{fmt(cpk)}</td><td>{fmt(failures_all)}</td><td>{fmt(failures_up)}</td><td>{fmt(failures_dn)}</td></tr>
         </table>
         """
 
@@ -441,13 +424,10 @@ def generate_report(raw, usl, lsl, n_sim, seed, formula, params_df):
     """
     return report_html
 
-# 主程序
 def main():
-    # 标题
     st.markdown('<div class="main-title">📊 Para_Variation - 基于蒙特卡洛模拟分析</div>', unsafe_allow_html=True)
     st.markdown("根据输入参数的分布进行随机抽样，计算用户定义的公式结果，分析输出分布及各参数贡献度。")
 
-    # 侧边栏设置
     with st.sidebar:
         st.markdown("## ⚙️ 模拟设置")
         n_sim = st.number_input("模拟次数 (Trail number)", min_value=100, max_value=100000, value=1000, step=100)
@@ -458,7 +438,6 @@ def main():
         st.session_state.lsl_str = lsl_sidebar
         seed = st.number_input("随机种子", value=42, step=1)
 
-    # 主区域
     st.markdown('<div class="section-header">📝 参数输入</div>', unsafe_allow_html=True)
     edited_df = st.data_editor(st.session_state.params, num_rows="dynamic", use_container_width=True)
 
@@ -525,52 +504,24 @@ def main():
         lsl = parse_limit(st.session_state.lsl_str)
         cpk, failures_all, failures_up, failures_dn = compute_cpk_ppm(results, usl, lsl)
 
-        # 主要统计卡片
         st.markdown(f'<div class="section-header">📈 模拟结果: {output_name}</div>', unsafe_allow_html=True)
         col1, col2, col3 = st.columns(3)
         with col1:
             st.markdown(f"""
-            <div class="metric-card">
-                <div class="metric-label">{output_name} 均值</div>
-                <div class="metric-value">{raw['mean']:.2f}</div>
-            </div>
-            """, unsafe_allow_html=True)
-            st.markdown(f"""
-            <div class="metric-card">
-                <div class="metric-label">{output_name} 标准差</div>
-                <div class="metric-value">{raw['std']:.2f}</div>
-            </div>
+            <div class="metric-card"><div class="metric-label">{output_name} 均值</div><div class="metric-value">{raw['mean']:.2f}</div></div>
+            <div class="metric-card"><div class="metric-label">{output_name} 标准差</div><div class="metric-value">{raw['std']:.2f}</div></div>
             """, unsafe_allow_html=True)
         with col2:
             st.markdown(f"""
-            <div class="metric-card">
-                <div class="metric-label">最大值</div>
-                <div class="metric-value">{raw['max']:.2f}</div>
-            </div>
-            """, unsafe_allow_html=True)
-            st.markdown(f"""
-            <div class="metric-card">
-                <div class="metric-label">最小值</div>
-                <div class="metric-value">{raw['min']:.2f}</div>
-            </div>
+            <div class="metric-card"><div class="metric-label">最大值</div><div class="metric-value">{raw['max']:.2f}</div></div>
+            <div class="metric-card"><div class="metric-label">最小值</div><div class="metric-value">{raw['min']:.2f}</div></div>
             """, unsafe_allow_html=True)
         with col3:
             if cpk is not None:
-                st.markdown(f"""
-                <div class="metric-card">
-                    <div class="metric-label">Cpk</div>
-                    <div class="metric-value">{cpk:.2f}</div>
-                </div>
-                """, unsafe_allow_html=True)
+                st.markdown(f'<div class="metric-card"><div class="metric-label">Cpk</div><div class="metric-value">{cpk:.2f}</div></div>', unsafe_allow_html=True)
             else:
-                st.markdown(f"""
-                <div class="metric-card">
-                    <div class="metric-label">Cpk</div>
-                    <div class="metric-value">-</div>
-                </div>
-                """, unsafe_allow_html=True)
+                st.markdown('<div class="metric-card"><div class="metric-label">Cpk</div><div class="metric-value">-</div></div>', unsafe_allow_html=True)
 
-        # Failure ppm level 区域
         st.markdown('<div class="section-header">Failure ppm level</div>', unsafe_allow_html=True)
         st.caption("💡 可调节上下限以实时观察PPM水平的变化（留空表示无此限）")
         col_left, col_right = st.columns([1, 2])
@@ -584,79 +535,37 @@ def main():
             cpk, failures_all, failures_up, failures_dn = compute_cpk_ppm(results, usl, lsl)
         with col_right:
             if cpk is not None:
-                # 安全格式化数值，避免 None 传入 f-string
-                def fmt(val):
-                    return f"{val:.2f}" if val is not None else "-"
-                ppm_html = f"""
-                <style>
-                .ppm-table {{
-                    border-collapse: collapse;
-                    width: auto;
-                    margin: 0 auto;
-                }}
-                .ppm-table th, .ppm-table td {{
-                    border: 2px solid black;
-                    padding: 10px 16px;
-                    text-align: center;
-                    font-size: 1rem;
-                }}
-                .ppm-table th {{
-                    background-color: #e9ecef;
-                    font-weight: 600;
-                }}
-                </style>
+                def fmt(val): return f"{val:.2f}" if val is not None else "-"
+                st.markdown(f"""
                 <table class="ppm-table">
                     <tr><th>CPK</th><th>Failure All</th><th>Failure Up</th><th>Failure Dn</th></tr>
-                    <tr>
-                        <td>{fmt(cpk)}</td>
-                        <td>{fmt(failures_all)}</td>
-                        <td>{fmt(failures_up)}</td>
-                        <td>{fmt(failures_dn)}</td>
-                    </tr>
+                    <tr><td>{fmt(cpk)}</td><td>{fmt(failures_all)}</td><td>{fmt(failures_up)}</td><td>{fmt(failures_dn)}</td></tr>
                 </table>
-                """
-                st.markdown(ppm_html, unsafe_allow_html=True)
+                """, unsafe_allow_html=True)
             else:
                 st.info("未提供任何规格限，无法计算CPK和PPM。")
 
-        # 分布直方图
         st.markdown('<div class="section-header">分布直方图</div>', unsafe_allow_html=True)
         fig_hist = plot_histogram(results, raw["bin_centers"], raw["hist_counts"],
                                   raw["x_pdf"], raw["pdf_theory"], usl, lsl, output_name, n_sim)
         st.pyplot(fig_hist)
 
-        # 设计参数影响百分比
         st.markdown(f'<div class="section-header">设计参数对 {output_name} 影响百分比</div>', unsafe_allow_html=True)
-        contributions = raw["contributions"]
-        param_names = raw["param_names"]
-        fig_barh = plot_contribution_horizontal(contributions, param_names, output_name)
+        fig_barh = plot_contribution_horizontal(raw["contributions"], raw["param_names"], output_name)
         st.pyplot(fig_barh)
 
         with st.expander("查看贡献百分比数据表"):
             st.dataframe(raw["df_contrib"][["参数", "贡献百分比_显示"]].rename(columns={"贡献百分比_显示": "贡献百分比"}), use_container_width=True)
 
-        # 模拟数据预览
         with st.expander("查看全部模拟数据"):
-            samples_df = pd.DataFrame(raw["samples"], columns=param_names)
+            samples_df = pd.DataFrame(raw["samples"], columns=raw["param_names"])
             samples_df[output_name] = results
-            display_df = samples_df.round(2)
-            st.dataframe(display_df, use_container_width=True, height=400)
+            st.dataframe(samples_df.round(2), use_container_width=True, height=400)
             csv = samples_df.to_csv(index=False, float_format="%.6f")
-            st.download_button(
-                label="📥 下载模拟数据 (CSV)",
-                data=csv,
-                file_name=f"monte_carlo_data_{output_name}.csv",
-                mime="text/csv"
-            )
+            st.download_button("📥 下载模拟数据 (CSV)", data=csv, file_name=f"monte_carlo_data_{output_name}.csv", mime="text/csv")
 
-        # 报告下载
         report_html = generate_report(raw, usl, lsl, n_sim, seed, formula, edited_df)
-        st.download_button(
-            label="📄 下载专业报告 (HTML)",
-            data=report_html,
-            file_name=f"MonteCarlo_Report_{output_name}.html",
-            mime="text/html"
-        )
+        st.download_button("📄 下载专业报告 (HTML)", data=report_html, file_name=f"MonteCarlo_Report_{output_name}.html", mime="text/html")
 
         st.success("模拟完成！")
 
