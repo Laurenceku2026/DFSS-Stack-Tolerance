@@ -9,6 +9,7 @@ import re
 import base64
 from io import BytesIO
 from typing import List, Dict, Any, Tuple, Optional
+from datetime import datetime
 
 st.set_page_config(page_title="Para_Variation - 蒙特卡洛模拟", layout="wide")
 
@@ -31,6 +32,7 @@ st.markdown("""
     .param-letter { font-weight: bold; font-size: 1rem; text-align: center; background-color: #e9ecef; border-radius: 4px; padding: 6px 0; width: 40px; }
     .formula-hint { font-size: 0.9rem; color: #6c757d; margin-bottom: 5px; }
     .expand-section { background-color: #f8f9fa; border-radius: 8px; padding: 10px; margin-top: 5px; margin-bottom: 10px; border-left: 3px solid #3498db; }
+    .sidebar-section { margin-top: 30px; padding-top: 20px; border-top: 1px solid #ddd; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -53,6 +55,10 @@ if "usl_str" not in st.session_state:
     st.session_state.usl_str = "40.0"
 if "lsl_str" not in st.session_state:
     st.session_state.lsl_str = "30.0"
+if "analyst_name" not in st.session_state:
+    st.session_state.analyst_name = ""
+if "analyst_title" not in st.session_state:
+    st.session_state.analyst_title = ""
 
 # 分布类型列表
 DISTRIBUTIONS = [
@@ -319,7 +325,8 @@ def plot_histogram(results, bin_centers, hist_counts, x_pdf, pdf_theory, usl, ls
         ax.axvline(usl, color='green', linestyle='--', linewidth=1.5, label=f"USL = {usl:.2f}")
     if lsl is not None:
         ax.axvline(lsl, color='orange', linestyle='--', linewidth=1.5, label=f"LSL = {lsl:.2f}")
-    stats_text = f"NO.={n_sim}\nAVE={np.mean(results):.6f}\nSTD={np.std(results, ddof=1):.6f}\nMAX={np.max(results):.6f}\nMIN={np.min(results):.6f}"
+    # 修改精度：AVE/MAX/MIN 两位小数，STD 四位小数
+    stats_text = f"NO.={n_sim}\nAVE={np.mean(results):.2f}\nSTD={np.std(results, ddof=1):.4f}\nMAX={np.max(results):.2f}\nMIN={np.min(results):.2f}"
     ax.text(0.95, 0.95, stats_text, transform=ax.transAxes, fontsize=9, verticalalignment='top', horizontalalignment='right', bbox=dict(boxstyle='round', facecolor='white', alpha=0.8, edgecolor='gray'))
     ax.legend(loc='upper right', bbox_to_anchor=(0.95, 0.72), fontsize=9)
     ax.set_xlabel(output_name, fontsize=11)
@@ -375,7 +382,7 @@ def compute_cpk_ppm(results: np.ndarray, usl: Optional[float], lsl: Optional[flo
         failures_all = failures_dn
     return cpk, failures_all, failures_up, failures_dn
 
-def generate_report(raw, usl, lsl, n_sim, seed, formula, params_df, param_letters):
+def generate_report(raw, usl, lsl, n_sim, seed, formula, params_df, param_letters, analyst_name, analyst_title):
     results = raw["results"]
     output_name = raw["output_name"]
     cpk, failures_all, failures_up, failures_dn = compute_cpk_ppm(results, usl, lsl)
@@ -416,23 +423,24 @@ def generate_report(raw, usl, lsl, n_sim, seed, formula, params_df, param_letter
         table.dataframe th { background-color: #f2f2f2; font-weight: bold; }
         .stats-table td, .stats-table th { text-align: center; }
         .footer { margin-top: 40px; font-size: 10pt; color: #7f8c8d; text-align: center; }
+        .analyst-info { margin-bottom: 20px; padding: 10px; background-color: #f9f9f9; border-left: 4px solid #3498db; }
     </style>
     """
     def fmt(val): return f"{val:.2f}" if val is not None else "-"
     stats_html = f"""
     <table class="dataframe stats-table">
         <tr><th>统计量</th><th>数值</th></tr>
-        <tr><td>均值</th><td>{raw['mean']:.2f}</td></tr>
-        <tr><td>标准差</th><td>{raw['std']:.2f}</td></tr>
-        <tr><td>最大值</th><td>{raw['max']:.2f}</td></tr>
-        <tr><td>最小值</th><td>{raw['min']:.2f}</td>
+        <tr><td>均值</td><td>{raw['mean']:.2f}</td></tr>
+        <tr><td>标准差</td><td>{raw['std']:.2f}</td></tr>
+        <tr><td>最大值</td><td>{raw['max']:.2f}</td></tr>
+        <tr><td>最小值</td><td>{raw['min']:.2f}</td></tr>
     </table>
     """
     if cpk is not None:
         stats_html += f"""
         <table class="dataframe stats-table">
             <tr><th>Cpk</th><th>Failure All (ppm)</th><th>Failure Up (ppm)</th><th>Failure Dn (ppm)</th></tr>
-            <tr><td>{fmt(cpk)}</td><td>{fmt(failures_all)}</td><td>{fmt(failures_up)}</td><td>{fmt(failures_dn)}</td>
+            <tr><td>{fmt(cpk)}</td><td>{fmt(failures_all)}</td><td>{fmt(failures_up)}</td><td>{fmt(failures_dn)}</td></tr>
         </table>
         """
     report_html = f"""
@@ -441,6 +449,10 @@ def generate_report(raw, usl, lsl, n_sim, seed, formula, params_df, param_letter
     <head><meta charset="UTF-8"><title>蒙特卡洛模拟报告 - {output_name}</title>{css}</head>
     <body>
         <h1>蒙特卡洛模拟分析报告</h1>
+        <div class="analyst-info">
+            <strong>分析人：</strong> {analyst_name if analyst_name else "未填写"}<br>
+            <strong>头衔：</strong> {analyst_title if analyst_title else "未填写"}
+        </div>
         <div class="report-section"><h2>1. 模拟设置</h2><ul>
             <li><strong>输出变量名称：</strong> {output_name}</li>
             <li><strong>公式：</strong> {formula}</li>
@@ -454,7 +466,10 @@ def generate_report(raw, usl, lsl, n_sim, seed, formula, params_df, param_letter
         <div class="report-section"><h2>4. 分布直方图</h2><img src="data:image/png;base64,{hist_b64}" style="max-width:100%;"></div>
         <div class="report-section"><h2>5. 设计参数对 {output_name} 影响百分比</h2><img src="data:image/png;base64,{barh_b64}" style="max-width:100%;"><h3>详细数据表</h3>{contrib_html}</div>
         <div class="report-section"><h2>6. 模拟数据预览（前100行）</h2>{preview_html}</div>
-        <div class="footer">报告生成时间：{pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S")}</div>
+        <div class="footer">
+            报告生成时间：{pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S")}<br>
+            联系：电邮 Techlife2027@gmail.com
+        </div>
     </body>
     </html>
     """
@@ -474,9 +489,34 @@ def main():
         st.session_state.lsl_str = lsl_sidebar
         seed = st.number_input("随机种子", value=42, step=1)
 
+        # 添加“关于分析系统”说明
+        st.markdown("---")
+        st.markdown("### 关于分析系统")
+        st.markdown("""
+        - 设计变量根据输入参数的公式来计算
+        - 每个参数独立根据 pdf 抽样
+        **输出：**
+        - 预测设计变量的量产的分布，均值与失效率
+        - 设计参数的影响百分比
+        - 通过调节上下限，找出合理失效率，从而定义合理规格
+        """)
+
+        # 分析人信息
+        st.markdown("---")
+        st.markdown("### 分析人信息")
+        analyst_name = st.text_input("分析人姓名", value=st.session_state.analyst_name, key="analyst_name_input")
+        analyst_title = st.text_input("分析人头衔（可选）", value=st.session_state.analyst_title, key="analyst_title_input")
+        st.session_state.analyst_name = analyst_name
+        st.session_state.analyst_title = analyst_title
+
+        # 联系信息
+        st.markdown("---")
+        st.markdown("**联系：**")
+        st.markdown("电邮: Techlife2027@gmail.com")
+
+    # 参数输入表格（与之前相同，略，但完整代码已包含）
     st.markdown('<div class="section-header">📝 参数输入</div>', unsafe_allow_html=True)
 
-    # 表头
     header_cols = st.columns([0.3, 1.5, 1, 1, 1.2, 0.3])
     header_cols[0].markdown("**字母**")
     header_cols[1].markdown("**参数名称**")
@@ -585,6 +625,7 @@ def main():
     st.session_state.params = pd.DataFrame(new_params)
     update_param_letters()
 
+    # 公式定义区域
     st.markdown('<div class="section-header">📐 公式定义（设计值）</div>', unsafe_allow_html=True)
 
     st.markdown('<span class="big-label">📌 设计变量名称</span>', unsafe_allow_html=True)
@@ -662,7 +703,7 @@ def main():
         col1, col2, col3 = st.columns(3)
         with col1:
             st.markdown(f'<div class="metric-card"><div class="metric-label">{output_name} 均值</div><div class="metric-value">{raw["mean"]:.2f}</div></div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="metric-card"><div class="metric-label">{output_name} 标准差</div><div class="metric-value">{raw["std"]:.2f}</div></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="metric-card"><div class="metric-label">{output_name} 标准差</div><div class="metric-value">{raw["std"]:.4f}</div></div>', unsafe_allow_html=True)
         with col2:
             st.markdown(f'<div class="metric-card"><div class="metric-label">最大值</div><div class="metric-value">{raw["max"]:.2f}</div></div>', unsafe_allow_html=True)
             st.markdown(f'<div class="metric-card"><div class="metric-label">最小值</div><div class="metric-value">{raw["min"]:.2f}</div></div>', unsafe_allow_html=True)
@@ -689,19 +730,19 @@ def main():
                 st.markdown(f"""
                 <table class="ppm-table">
                     <tr><th>CPK</th><th>Failure All</th><th>Failure Up</th><th>Failure Dn</th></tr>
-                    <tr><td>{fmt(cpk)}</td><td>{fmt(failures_all)}</td><td>{fmt(failures_up)}</td><td>{fmt(failures_dn)}</td>
+                    <tr><td>{fmt(cpk)}</td><td>{fmt(failures_all)}</td><td>{fmt(failures_up)}</td><td>{fmt(failures_dn)}</td></tr>
                 </table>
                 """, unsafe_allow_html=True)
             else:
                 st.info("未提供任何规格限，无法计算CPK和PPM。")
 
-        # 分布直方图 - 外部添加中文标题和横轴说明
+        # 分布直方图
         st.markdown(f"### {output_name} 分布直方图")
         fig_hist = plot_histogram(results, raw["bin_centers"], raw["hist_counts"], raw["x_pdf"], raw["pdf_theory"], usl, lsl, output_name, n_sim)
         st.pyplot(fig_hist)
         st.caption(f"横轴：{output_name}   |   纵轴：频次")
 
-        # 设计参数影响百分比 - 外部添加中文标题和横轴说明
+        # 设计参数影响百分比
         st.markdown(f"### {output_name} 设计参数影响百分比")
         fig_barh = plot_contribution_horizontal(raw["contributions"], raw["param_names"], output_name)
         st.pyplot(fig_barh)
@@ -717,7 +758,7 @@ def main():
             csv = samples_df.to_csv(index=False, float_format="%.6f")
             st.download_button("📥 下载模拟数据 (CSV)", data=csv, file_name=f"monte_carlo_data_{output_name}.csv", mime="text/csv")
 
-        report_html = generate_report(raw, usl, lsl, n_sim, seed, formula, st.session_state.params, st.session_state.param_letters)
+        report_html = generate_report(raw, usl, lsl, n_sim, seed, formula, st.session_state.params, st.session_state.param_letters, st.session_state.analyst_name, st.session_state.analyst_title)
         st.download_button("📄 下载专业报告 (HTML)", data=report_html, file_name=f"MonteCarlo_Report_{output_name}.html", mime="text/html")
         st.success("模拟完成！")
 
