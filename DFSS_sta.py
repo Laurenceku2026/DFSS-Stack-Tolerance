@@ -50,6 +50,7 @@ TEXTS = {
         "distribution": "分布",
         "delete": "删除",
         "add_row": "➕ 添加参数行",
+        "new_param_default": "新参数",
         "configure": "⚙️ 配置 {} 参数",
         # 分布类型
         "dist_full": "正态分布（完整）",
@@ -165,6 +166,7 @@ TEXTS = {
         "distribution": "Distribution",
         "delete": "Delete",
         "add_row": "➕ Add Parameter Row",
+        "new_param_default": "New Parameter",
         "configure": "⚙️ Configure {} Parameters",
         "dist_full": "Normal (Full)",
         "dist_pos": "Normal (Positive only)",
@@ -273,19 +275,21 @@ st.markdown("""
     .big-label { font-size: 1.3rem; font-weight: 500; margin-bottom: 5px; }
     .param-letter { font-weight: bold; font-size: 1rem; text-align: center; background-color: #e9ecef; border-radius: 4px; padding: 6px 0; width: 40px; }
     .formula-hint { font-size: 0.9rem; color: #6c757d; margin-bottom: 5px; }
-    .lang-buttons { position: fixed; top: 10px; right: 20px; z-index: 1000; }
+    .lang-buttons { position: fixed; top: 10px; right: 20px; z-index: 1000; display: flex; gap: 8px; }
 </style>
 """, unsafe_allow_html=True)
 
-# 语言切换按钮（右上角）
-col_lang1, col_lang2 = st.columns([0.9, 0.1])
-with col_lang2:
-    if st.button("中文", key="lang_zh"):
-        st.session_state.lang = "zh"
-        st.rerun()
-    if st.button("English", key="lang_en"):
-        st.session_state.lang = "en"
-        st.rerun()
+# 语言切换按钮（右上角，横向排列）
+with st.container():
+    col_lang1, col_lang2, _ = st.columns([0.1, 0.1, 0.8])
+    with col_lang1:
+        if st.button("中文", key="lang_zh"):
+            st.session_state.lang = "zh"
+            st.rerun()
+    with col_lang2:
+        if st.button("English", key="lang_en"):
+            st.session_state.lang = "en"
+            st.rerun()
 
 # 初始化 session state
 if "params" not in st.session_state:
@@ -864,7 +868,7 @@ def main():
             })
     if st.button(t("add_row"), use_container_width=True):
         new_params.append({
-            "参数名称": "新参数",
+            "参数名称": t("new_param_default"),
             "均值(Typ)": 0.0,
             "标准差(Std)": 0.0,
             "分布": t("dist_full"),
@@ -900,7 +904,7 @@ def main():
     with col2:
         if st.button(t("start_sim"), type="primary", use_container_width=True):
             if st.session_state.params.isnull().values.any():
-                st.error(t("formula_invalid"))  # 复用
+                st.error(t("formula_invalid"))
                 st.stop()
             param_names = st.session_state.params["参数名称"].astype(str).tolist()
             if len(set(param_names)) != len(param_names):
