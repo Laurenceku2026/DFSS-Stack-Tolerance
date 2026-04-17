@@ -13,10 +13,248 @@ from datetime import datetime
 from docx import Document
 from docx.shared import Inches, Pt
 from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.enum.table import WD_TABLE_ALIGNMENT
 
 st.set_page_config(page_title="Para_Variation - 蒙特卡洛模拟", layout="wide")
 
+# ==================== 多语言文本字典 ====================
+TEXTS = {
+    "zh": {
+        # 主界面
+        "title": "📊 Para_Variation - 基于蒙特卡洛模拟分析",
+        "subtitle": "根据输入参数的分布进行随机抽样，计算用户定义的公式结果，分析输出分布及各参数贡献度。",
+        # 侧边栏
+        "sim_settings": "⚙️ 模拟设置",
+        "trail_number": "模拟次数 (Trail number)",
+        "spec_limits": "规格限（可留空）",
+        "usl": "规格上限 (USL)",
+        "lsl": "规格下限 (LSL)",
+        "random_seed": "随机种子",
+        "about_system": "关于分析系统",
+        "about_desc1": "**设计变量**：根据输入参数的公式计算得出。",
+        "about_desc2": "**参数抽样**：每个参数独立根据其概率密度函数（PDF）进行随机抽样。",
+        "output_title": "**输出结果：**",
+        "output1": "- 预测设计变量在量产阶段的分布形态、均值及失效率。",
+        "output2": "- 量化各设计参数对输出变量的影响百分比。",
+        "output3": "- 通过调节规格上下限，快速确定合理的失效率目标，从而定义合理的工程规格。",
+        "analyst_info": "分析人信息",
+        "analyst_name": "分析人姓名",
+        "analyst_title": "分析人头衔（可选）",
+        "contact": "联系：",
+        "email": "电邮: Techlife2027@gmail.com",
+        # 参数输入表格
+        "param_input": "📝 参数输入",
+        "letter": "字母",
+        "param_name": "参数名称",
+        "mean": "均值(Typ)",
+        "std": "标准差(Std)",
+        "distribution": "分布",
+        "delete": "删除",
+        "add_row": "➕ 添加参数行",
+        "configure": "⚙️ 配置 {} 参数",
+        # 分布类型
+        "dist_full": "正态分布（完整）",
+        "dist_pos": "正态分布（正值）",
+        "dist_neg": "正态分布（负值）",
+        "dist_uniform": "均匀分布",
+        "dist_lognorm": "对数正态分布",
+        "dist_weibull": "威布尔分布",
+        "dist_tri": "三角分布",
+        # 均匀分布参数
+        "uniform_low": "下限",
+        "uniform_high": "上限",
+        "lognorm_meanlog": "对数均值 (μ_log)",
+        "lognorm_sigmalog": "对数标准差 (σ_log)",
+        "weibull_shape": "形状参数 (k)",
+        "weibull_scale": "尺度参数 (λ)",
+        "tri_left": "最小值",
+        "tri_mode": "最可能值",
+        "tri_right": "最大值",
+        "error_low_high": "下限必须小于上限",
+        "error_sigma": "对数标准差必须大于0",
+        "error_weibull": "形状和尺度参数必须 > 0",
+        "error_tri": "必须满足：最小值 ≤ 最可能值 ≤ 最大值",
+        # 公式定义
+        "formula_def": "📐 公式定义（设计值）",
+        "design_var_name": "📌 设计变量名称",
+        "formula_label": "📝 计算公式",
+        "formula_hint": "💡 可直接在公式中使用字母（A, B, C...）代表对应参数，系统将自动识别。例如：A*E*7/1000*60/(B+C+D)",
+        "formula_supported": "支持的运算: + - * / **, 括号, 函数: sqrt, exp, log, sin, cos, tan, pi, e 等。公式中的空格会被自动优化。",
+        "design_value": "📌 当前设计值（基于均值）:",
+        "formula_invalid": "公式无效或参数不匹配，无法计算设计值。请检查公式中的字母是否与上方对应关系一致，并确保运算正确。",
+        # 模拟按钮
+        "start_sim": "开始\n蒙特卡洛模拟",
+        # 模拟结果
+        "sim_result": "📈 模拟结果: {}",
+        "mean_val": "{} 均值",
+        "std_val": "{} 标准差",
+        "max_val": "最大值",
+        "min_val": "最小值",
+        "cpk_val": "Cpk",
+        "failure_ppm": "Failure ppm level",
+        "ppm_hint": "💡 可调节上下限以实时观察PPM水平的变化（留空表示无此限）",
+        "no_limits": "未提供任何规格限，无法计算CPK和PPM。",
+        "histogram": "{} 分布直方图",
+        "hist_caption": "横轴：{}   |   纵轴：频次",
+        "effect_chart": "{} 设计参数影响百分比",
+        "effect_caption": "横轴：影响百分比   |   纵轴：设计参数",
+        "view_contrib": "查看贡献百分比数据表",
+        "view_data": "查看全部模拟数据",
+        "download_csv": "📥 下载模拟数据 (CSV)",
+        "download_report": "📄 下载专业报告 (Word)",
+        "success": "模拟完成！",
+        # 报告内容
+        "report_title": "{} - DFSS模拟分析报告",
+        "analyst_info_report": "分析人信息",
+        "analyst_name_report": "分析人姓名：",
+        "analyst_title_report": "头衔：",
+        "not_filled": "未填写",
+        "sim_settings_report": "1. 模拟设置",
+        "output_var": "输出变量名称：",
+        "formula_report": "公式：",
+        "sim_times": "模拟次数：",
+        "random_seed_report": "随机种子：",
+        "usl_report": "规格上限 (USL)：",
+        "lsl_report": "规格下限 (LSL)：",
+        "none": "无",
+        "param_table": "2. 输入参数表",
+        "result_stats": "3. {}模拟结果统计",
+        "statistic": "统计量",
+        "value": "数值",
+        "mean_stat": "均值",
+        "std_stat": "标准差",
+        "max_stat": "最大值",
+        "min_stat": "最小值",
+        "cpk_stat": "Cpk",
+        "fail_all": "Failure All (ppm)",
+        "fail_up": "Failure Up (ppm)",
+        "fail_dn": "Failure Dn (ppm)",
+        "histogram_report": "4. 分布直方图",
+        "effect_report": "5. 设计参数对 {} 影响百分比",
+        "detail_table": "详细数据表",
+        "param": "参数",
+        "contribution": "贡献百分比",
+        "contact_report": "联系电邮：Techlife2027@gmail.com",
+        "report_date": "报告生成时间：{}",
+    },
+    "en": {
+        "title": "📊 Para_Variation - Monte Carlo Simulation",
+        "subtitle": "Randomly sample input parameters based on their distributions, compute user-defined formula, analyze output distribution and parameter contribution.",
+        "sim_settings": "⚙️ Simulation Settings",
+        "trail_number": "Trail number",
+        "spec_limits": "Specification limits (leave blank if none)",
+        "usl": "Upper Spec Limit (USL)",
+        "lsl": "Lower Spec Limit (LSL)",
+        "random_seed": "Random seed",
+        "about_system": "About Analysis System",
+        "about_desc1": "**Design Variable**: Calculated from input parameters using the formula.",
+        "about_desc2": "**Parameter Sampling**: Each parameter is independently sampled based on its Probability Density Function (PDF).",
+        "output_title": "**Outputs:**",
+        "output1": "- Predict the distribution shape, mean, and failure rate of the design variable in mass production.",
+        "output2": "- Quantify the percentage impact of each design parameter on the output variable.",
+        "output3": "- Adjust spec limits to quickly determine reasonable failure rate targets and define engineering specifications.",
+        "analyst_info": "Analyst Information",
+        "analyst_name": "Analyst Name",
+        "analyst_title": "Analyst Title (optional)",
+        "contact": "Contact:",
+        "email": "Email: Techlife2027@gmail.com",
+        "param_input": "📝 Parameter Input",
+        "letter": "Letter",
+        "param_name": "Parameter Name",
+        "mean": "Mean (Typ)",
+        "std": "Std Dev (Std)",
+        "distribution": "Distribution",
+        "delete": "Delete",
+        "add_row": "➕ Add Parameter Row",
+        "configure": "⚙️ Configure {} Parameters",
+        "dist_full": "Normal (Full)",
+        "dist_pos": "Normal (Positive only)",
+        "dist_neg": "Normal (Negative only)",
+        "dist_uniform": "Uniform",
+        "dist_lognorm": "Log-normal",
+        "dist_weibull": "Weibull",
+        "dist_tri": "Triangular",
+        "uniform_low": "Lower bound",
+        "uniform_high": "Upper bound",
+        "lognorm_meanlog": "Log mean (μ_log)",
+        "lognorm_sigmalog": "Log std dev (σ_log)",
+        "weibull_shape": "Shape (k)",
+        "weibull_scale": "Scale (λ)",
+        "tri_left": "Minimum",
+        "tri_mode": "Most likely",
+        "tri_right": "Maximum",
+        "error_low_high": "Lower bound must be less than upper bound",
+        "error_sigma": "Log standard deviation must be > 0",
+        "error_weibull": "Shape and scale must be > 0",
+        "error_tri": "Must satisfy: min ≤ mode ≤ max",
+        "formula_def": "📐 Formula Definition (Design Value)",
+        "design_var_name": "📌 Design Variable Name",
+        "formula_label": "📝 Formula",
+        "formula_hint": "💡 Use letters (A, B, C...) in the formula to represent parameters. System will automatically recognize. Example: A*E*7/1000*60/(B+C+D)",
+        "formula_supported": "Supported operators: + - * / **, parentheses, functions: sqrt, exp, log, sin, cos, tan, pi, e, etc. Spaces are automatically optimized.",
+        "design_value": "📌 Current Design Value (based on means):",
+        "formula_invalid": "Invalid formula or parameter mismatch. Cannot compute design value. Please check if letters match the table above.",
+        "start_sim": "Start\nMonte Carlo",
+        "sim_result": "📈 Simulation Results: {}",
+        "mean_val": "{} Mean",
+        "std_val": "{} Std Dev",
+        "max_val": "Max",
+        "min_val": "Min",
+        "cpk_val": "Cpk",
+        "failure_ppm": "Failure ppm level",
+        "ppm_hint": "💡 Adjust limits to see PPM levels in real time (leave blank if no limit).",
+        "no_limits": "No specification limits provided. Cannot compute CPK and PPM.",
+        "histogram": "{} Distribution Histogram",
+        "hist_caption": "X-axis: {}   |   Y-axis: Frequency",
+        "effect_chart": "Parameter Contribution to {}",
+        "effect_caption": "X-axis: Contribution %   |   Y-axis: Parameters",
+        "view_contrib": "View Contribution Data Table",
+        "view_data": "View All Simulation Data",
+        "download_csv": "📥 Download Simulation Data (CSV)",
+        "download_report": "📄 Download Professional Report (Word)",
+        "success": "Simulation completed!",
+        "report_title": "{} - DFSS Simulation Report",
+        "analyst_info_report": "Analyst Information",
+        "analyst_name_report": "Analyst Name:",
+        "analyst_title_report": "Title:",
+        "not_filled": "Not filled",
+        "sim_settings_report": "1. Simulation Settings",
+        "output_var": "Output Variable Name:",
+        "formula_report": "Formula:",
+        "sim_times": "Number of simulations:",
+        "random_seed_report": "Random seed:",
+        "usl_report": "Upper Spec Limit (USL):",
+        "lsl_report": "Lower Spec Limit (LSL):",
+        "none": "None",
+        "param_table": "2. Input Parameter Table",
+        "result_stats": "3. {} Simulation Result Statistics",
+        "statistic": "Statistic",
+        "value": "Value",
+        "mean_stat": "Mean",
+        "std_stat": "Std Dev",
+        "max_stat": "Max",
+        "min_stat": "Min",
+        "cpk_stat": "Cpk",
+        "fail_all": "Failure All (ppm)",
+        "fail_up": "Failure Up (ppm)",
+        "fail_dn": "Failure Dn (ppm)",
+        "histogram_report": "4. Distribution Histogram",
+        "effect_report": "5. Parameter Contribution to {}",
+        "detail_table": "Detail Data Table",
+        "param": "Parameter",
+        "contribution": "Contribution %",
+        "contact_report": "Contact Email: Techlife2027@gmail.com",
+        "report_date": "Report Date: {}",
+    }
+}
+
+# 初始化语言
+if "lang" not in st.session_state:
+    st.session_state.lang = "zh"
+
+def t(key):
+    return TEXTS[st.session_state.lang].get(key, key)
+
+# 样式
 st.markdown("""
 <style>
     .main-title { font-size: 2.5rem; font-weight: 600; color: #1f3a93; margin-bottom: 1rem; }
@@ -35,10 +273,19 @@ st.markdown("""
     .big-label { font-size: 1.3rem; font-weight: 500; margin-bottom: 5px; }
     .param-letter { font-weight: bold; font-size: 1rem; text-align: center; background-color: #e9ecef; border-radius: 4px; padding: 6px 0; width: 40px; }
     .formula-hint { font-size: 0.9rem; color: #6c757d; margin-bottom: 5px; }
-    .expand-section { background-color: #f8f9fa; border-radius: 8px; padding: 10px; margin-top: 5px; margin-bottom: 10px; border-left: 3px solid #3498db; }
-    .sidebar-section { margin-top: 30px; padding-top: 20px; border-top: 1px solid #ddd; }
+    .lang-buttons { position: fixed; top: 10px; right: 20px; z-index: 1000; }
 </style>
 """, unsafe_allow_html=True)
+
+# 语言切换按钮（右上角）
+col_lang1, col_lang2 = st.columns([0.9, 0.1])
+with col_lang2:
+    if st.button("中文", key="lang_zh"):
+        st.session_state.lang = "zh"
+        st.rerun()
+    if st.button("English", key="lang_en"):
+        st.session_state.lang = "en"
+        st.rerun()
 
 # 初始化 session state
 if "params" not in st.session_state:
@@ -46,7 +293,7 @@ if "params" not in st.session_state:
         "参数名称": ["Cell Cap", "Suction P", "Brush P", "Other(Pump+display)", "V"],
         "均值(Typ)": [2450.0, 70.0, 30.0, 15.0, 3.6],
         "标准差(Std)": [20.74, 0.77, 0.90, 0.45, 0.0036],
-        "分布": ["正态分布（完整）", "正态分布（完整）", "正态分布（完整）", "正态分布（完整）", "正态分布（完整）"],
+        "分布": [t("dist_full") for _ in range(5)],
         "分布参数": [{} for _ in range(5)]
     })
 if "sim_results_raw" not in st.session_state:
@@ -64,16 +311,17 @@ if "analyst_name" not in st.session_state:
 if "analyst_title" not in st.session_state:
     st.session_state.analyst_title = ""
 
-# 分布类型列表
-DISTRIBUTIONS = [
-    "正态分布（完整）",
-    "正态分布（正值）",
-    "正态分布（负值）",
-    "均匀分布",
-    "对数正态分布",
-    "威布尔分布",
-    "三角分布"
-]
+# 分布类型列表（使用翻译后的文本）
+def get_distributions():
+    return [
+        t("dist_full"),
+        t("dist_pos"),
+        t("dist_neg"),
+        t("dist_uniform"),
+        t("dist_lognorm"),
+        t("dist_weibull"),
+        t("dist_tri")
+    ]
 
 def update_param_letters():
     letters = [chr(ord('A') + i) for i in range(len(st.session_state.params))]
@@ -139,31 +387,31 @@ def compute_design_value(params_df: pd.DataFrame, formula: str, param_letters: D
     return val if not np.isnan(val) else None
 
 def generate_sample(dist: str, mean: float, std: float, dist_params: Dict, size: int = 1) -> np.ndarray:
-    if dist == "正态分布（完整）":
+    if dist == t("dist_full"):
         return np.random.normal(mean, std, size)
-    elif dist == "正态分布（正值）":
+    elif dist == t("dist_pos"):
         a, b = (0 - mean) / std if std > 0 else -np.inf, np.inf
         if std == 0:
             return np.full(size, max(mean, 0))
         return stats.truncnorm.rvs(a, b, loc=mean, scale=std, size=size)
-    elif dist == "正态分布（负值）":
+    elif dist == t("dist_neg"):
         a, b = -np.inf, (0 - mean) / std if std > 0 else np.inf
         if std == 0:
             return np.full(size, min(mean, 0))
         return stats.truncnorm.rvs(a, b, loc=mean, scale=std, size=size)
-    elif dist == "均匀分布":
+    elif dist == t("dist_uniform"):
         low = dist_params.get("low", mean - 3*std)
         high = dist_params.get("high", mean + 3*std)
         return np.random.uniform(low, high, size)
-    elif dist == "对数正态分布":
+    elif dist == t("dist_lognorm"):
         mean_log = dist_params.get("mean_log", 0.0)
         sigma_log = dist_params.get("sigma_log", 1.0)
         return np.random.lognormal(mean_log, sigma_log, size)
-    elif dist == "威布尔分布":
+    elif dist == t("dist_weibull"):
         shape = dist_params.get("shape", 1.0)
         scale = dist_params.get("scale", 1.0)
         return np.random.weibull(shape, size) * scale
-    elif dist == "三角分布":
+    elif dist == t("dist_tri"):
         left = dist_params.get("left", mean - 3*std)
         mode = dist_params.get("mode", mean)
         right = dist_params.get("right", mean + 3*std)
@@ -255,13 +503,13 @@ def sensitivity_analysis(params_df: pd.DataFrame, formula: str, n_sim: int, para
     return df_contrib, contributions, param_names
 
 def plot_pdf(dist: str, mean: float, std: float, dist_params: Dict, ax):
-    if dist == "正态分布（完整）":
+    if dist == t("dist_full"):
         x = np.linspace(mean - 4*std, mean + 4*std, 200)
         y = stats.norm.pdf(x, mean, std)
         ax.plot(x, y, 'b-')
         ax.fill_between(x, y, alpha=0.3)
         ax.set_title(f"N(μ={mean:.1f}, σ={std:.2f})", fontsize=8)
-    elif dist == "正态分布（正值）":
+    elif dist == t("dist_pos"):
         a, b = (0 - mean) / std if std > 0 else -np.inf, np.inf
         if std == 0:
             x = [max(mean, 0)]
@@ -272,7 +520,7 @@ def plot_pdf(dist: str, mean: float, std: float, dist_params: Dict, ax):
         ax.plot(x, y, 'g-')
         ax.fill_between(x, y, alpha=0.3)
         ax.set_title(f"TruncNorm(≥0)", fontsize=8)
-    elif dist == "正态分布（负值）":
+    elif dist == t("dist_neg"):
         a, b = -np.inf, (0 - mean) / std if std > 0 else np.inf
         if std == 0:
             x = [min(mean, 0)]
@@ -283,7 +531,7 @@ def plot_pdf(dist: str, mean: float, std: float, dist_params: Dict, ax):
         ax.plot(x, y, 'r-')
         ax.fill_between(x, y, alpha=0.3)
         ax.set_title(f"TruncNorm(≤0)", fontsize=8)
-    elif dist == "均匀分布":
+    elif dist == t("dist_uniform"):
         low = dist_params.get("low", mean - 3*std)
         high = dist_params.get("high", mean + 3*std)
         x = np.linspace(low, high, 200)
@@ -291,7 +539,7 @@ def plot_pdf(dist: str, mean: float, std: float, dist_params: Dict, ax):
         ax.plot(x, y, 'purple')
         ax.fill_between(x, y, alpha=0.3)
         ax.set_title(f"U({low:.1f}, {high:.1f})", fontsize=8)
-    elif dist == "对数正态分布":
+    elif dist == t("dist_lognorm"):
         mean_log = dist_params.get("mean_log", 0.0)
         sigma_log = dist_params.get("sigma_log", 1.0)
         x = np.linspace(0, np.exp(mean_log + 3*sigma_log), 200)
@@ -299,7 +547,7 @@ def plot_pdf(dist: str, mean: float, std: float, dist_params: Dict, ax):
         ax.plot(x, y, 'orange')
         ax.fill_between(x, y, alpha=0.3)
         ax.set_title(f"LogN(μlog={mean_log:.1f}, σlog={sigma_log:.2f})", fontsize=8)
-    elif dist == "威布尔分布":
+    elif dist == t("dist_weibull"):
         shape = dist_params.get("shape", 1.0)
         scale = dist_params.get("scale", 1.0)
         x = np.linspace(0, scale * 3, 200)
@@ -307,7 +555,7 @@ def plot_pdf(dist: str, mean: float, std: float, dist_params: Dict, ax):
         ax.plot(x, y, 'brown')
         ax.fill_between(x, y, alpha=0.3)
         ax.set_title(f"Weibull(k={shape:.1f}, λ={scale:.1f})", fontsize=8)
-    elif dist == "三角分布":
+    elif dist == t("dist_tri"):
         left = dist_params.get("left", mean - 3*std)
         mode = dist_params.get("mode", mean)
         right = dist_params.get("right", mean + 3*std)
@@ -390,28 +638,24 @@ def generate_word_report(raw, usl, lsl, n_sim, seed, formula, params_df, param_l
     cpk, failures_all, failures_up, failures_dn = compute_cpk_ppm(results, usl, lsl)
 
     doc = Document()
-    
     # 标题
-    title = doc.add_heading(f"{output_name} - DFSS模拟分析报告", 0)
+    title = doc.add_heading(t("report_title").format(output_name), 0)
     title.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    
     # 分析人信息
-    doc.add_heading("分析人信息", level=1)
+    doc.add_heading(t("analyst_info_report"), level=1)
     p = doc.add_paragraph()
-    p.add_run(f"分析人姓名：{analyst_name if analyst_name else '未填写'}").bold = True
-    p.add_run(f"\n头衔：{analyst_title if analyst_title else '未填写'}")
-    
+    p.add_run(f"{t('analyst_name_report')} {analyst_name if analyst_name else t('not_filled')}").bold = True
+    p.add_run(f"\n{t('analyst_title_report')} {analyst_title if analyst_title else t('not_filled')}")
     # 模拟设置
-    doc.add_heading("1. 模拟设置", level=1)
-    doc.add_paragraph(f"输出变量名称：{output_name}")
-    doc.add_paragraph(f"公式：{formula}")
-    doc.add_paragraph(f"模拟次数：{n_sim}")
-    doc.add_paragraph(f"随机种子：{seed}")
-    doc.add_paragraph(f"规格上限 (USL)：{usl if usl is not None else '无'}")
-    doc.add_paragraph(f"规格下限 (LSL)：{lsl if lsl is not None else '无'}")
-    
+    doc.add_heading(t("sim_settings_report"), level=1)
+    doc.add_paragraph(f"{t('output_var')} {output_name}")
+    doc.add_paragraph(f"{t('formula_report')} {formula}")
+    doc.add_paragraph(f"{t('sim_times')} {n_sim}")
+    doc.add_paragraph(f"{t('random_seed_report')} {seed}")
+    doc.add_paragraph(f"{t('usl_report')} {usl if usl is not None else t('none')}")
+    doc.add_paragraph(f"{t('lsl_report')} {lsl if lsl is not None else t('none')}")
     # 输入参数表
-    doc.add_heading("2. 输入参数表", level=1)
+    doc.add_heading(t("param_table"), level=1)
     table = doc.add_table(rows=len(params_df)+1, cols=len(params_df.columns))
     table.style = 'Table Grid'
     for j, col in enumerate(params_df.columns):
@@ -422,125 +666,115 @@ def generate_word_report(raw, usl, lsl, n_sim, seed, formula, params_df, param_l
                 table.cell(i+1, j).text = str(row[col]) if row[col] else "{}"
             else:
                 table.cell(i+1, j).text = str(row[col])
-    
-    # 模拟结果统计（动态标题，横向表格）
-    doc.add_heading(f"3. {output_name}模拟结果统计", level=1)
+    # 结果统计
+    doc.add_heading(t("result_stats").format(output_name), level=1)
     stats_table = doc.add_table(rows=5, cols=2)
     stats_table.style = 'Table Grid'
-    stats_table.cell(0, 0).text = "统计量"
-    stats_table.cell(0, 1).text = "数值"
-    stats_table.cell(1, 0).text = "均值"
+    stats_table.cell(0, 0).text = t("statistic")
+    stats_table.cell(0, 1).text = t("value")
+    stats_table.cell(1, 0).text = t("mean_stat")
     stats_table.cell(1, 1).text = f"{raw['mean']:.2f}"
-    stats_table.cell(2, 0).text = "标准差"
+    stats_table.cell(2, 0).text = t("std_stat")
     stats_table.cell(2, 1).text = f"{raw['std']:.4f}"
-    stats_table.cell(3, 0).text = "最大值"
+    stats_table.cell(3, 0).text = t("max_stat")
     stats_table.cell(3, 1).text = f"{raw['max']:.2f}"
-    stats_table.cell(4, 0).text = "最小值"
+    stats_table.cell(4, 0).text = t("min_stat")
     stats_table.cell(4, 1).text = f"{raw['min']:.2f}"
     if cpk is not None:
-        stats_table.add_row().cells[0].text = "Cpk"
+        stats_table.add_row().cells[0].text = t("cpk_stat")
         stats_table.rows[-1].cells[1].text = f"{cpk:.2f}"
-        stats_table.add_row().cells[0].text = "Failure All (ppm)"
+        stats_table.add_row().cells[0].text = t("fail_all")
         stats_table.rows[-1].cells[1].text = f"{failures_all:.2f}" if failures_all is not None else "-"
-        stats_table.add_row().cells[0].text = "Failure Up (ppm)"
+        stats_table.add_row().cells[0].text = t("fail_up")
         stats_table.rows[-1].cells[1].text = f"{failures_up:.2f}" if failures_up is not None else "-"
-        stats_table.add_row().cells[0].text = "Failure Dn (ppm)"
+        stats_table.add_row().cells[0].text = t("fail_dn")
         stats_table.rows[-1].cells[1].text = f"{failures_dn:.2f}" if failures_dn is not None else "-"
-    
-    # 分布直方图
-    doc.add_heading("4. 分布直方图", level=1)
+    # 直方图
+    doc.add_heading(t("histogram_report"), level=1)
     fig_hist = plot_histogram(results, raw["bin_centers"], raw["hist_counts"], raw["x_pdf"], raw["pdf_theory"], usl, lsl, output_name, n_sim)
     buf_hist = BytesIO()
     fig_hist.savefig(buf_hist, format='png', dpi=150, bbox_inches='tight')
     buf_hist.seek(0)
     doc.add_picture(buf_hist, width=Inches(6))
     plt.close(fig_hist)
-    
-    # 设计参数影响百分比
-    doc.add_heading("5. 设计参数对 " + output_name + " 影响百分比", level=1)
+    # 影响百分比图
+    doc.add_heading(t("effect_report").format(output_name), level=1)
     fig_barh = plot_contribution_horizontal(raw["contributions"], raw["param_names"], output_name)
     buf_barh = BytesIO()
     fig_barh.savefig(buf_barh, format='png', dpi=150, bbox_inches='tight')
     buf_barh.seek(0)
     doc.add_picture(buf_barh, width=Inches(6))
     plt.close(fig_barh)
-    
-    # 贡献百分比数据表
-    doc.add_heading("详细数据表", level=2)
+    # 详细数据表
+    doc.add_heading(t("detail_table"), level=2)
     df_contrib = raw["df_contrib"].copy()
     df_contrib["贡献百分比"] = df_contrib["贡献百分比_显示"]
     contrib_table = doc.add_table(rows=len(df_contrib)+1, cols=2)
     contrib_table.style = 'Table Grid'
-    contrib_table.cell(0, 0).text = "参数"
-    contrib_table.cell(0, 1).text = "贡献百分比"
+    contrib_table.cell(0, 0).text = t("param")
+    contrib_table.cell(0, 1).text = t("contribution")
     for i, row in df_contrib.iterrows():
         contrib_table.cell(i+1, 0).text = row["参数"]
         contrib_table.cell(i+1, 1).text = row["贡献百分比"]
-    
-    # 联系信息
-    doc.add_page_break()
+    # 联系信息和日期（不换页，空几行）
+    doc.add_paragraph()
+    doc.add_paragraph()
+    doc.add_paragraph()
     footer = doc.add_paragraph()
     footer.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    footer.add_run("联系：电邮 Techlife2027@gmail.com").italic = True
-    footer.add_run(f"\n报告生成时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    
+    footer.add_run(t("contact_report")).italic = True
+    footer.add_run(f"\n{t('report_date').format(datetime.now().strftime('%Y-%m-%d'))}")
     doc_bytes = BytesIO()
     doc.save(doc_bytes)
     doc_bytes.seek(0)
     return doc_bytes
 
 def main():
-    st.markdown('<div class="main-title">📊 Para_Variation - 基于蒙特卡洛模拟分析</div>', unsafe_allow_html=True)
-    st.markdown("根据输入参数的分布进行随机抽样，计算用户定义的公式结果，分析输出分布及各参数贡献度。")
+    st.markdown(f'<div class="main-title">{t("title")}</div>', unsafe_allow_html=True)
+    st.markdown(t("subtitle"))
 
     with st.sidebar:
-        st.markdown("## ⚙️ 模拟设置")
-        n_sim = st.number_input("模拟次数 (Trail number)", min_value=100, max_value=100000, value=1000, step=100)
-        st.markdown("#### 规格限（可留空）")
-        usl_sidebar = st.text_input("规格上限 (USL)", value=st.session_state.usl_str, key="usl_sidebar", on_change=sync_usl_from_sidebar)
-        lsl_sidebar = st.text_input("规格下限 (LSL)", value=st.session_state.lsl_str, key="lsl_sidebar", on_change=sync_lsl_from_sidebar)
+        st.markdown(f"## {t('sim_settings')}")
+        n_sim = st.number_input(t("trail_number"), min_value=100, max_value=100000, value=1000, step=100)
+        st.markdown(f"#### {t('spec_limits')}")
+        usl_sidebar = st.text_input(t("usl"), value=st.session_state.usl_str, key="usl_sidebar", on_change=sync_usl_from_sidebar)
+        lsl_sidebar = st.text_input(t("lsl"), value=st.session_state.lsl_str, key="lsl_sidebar", on_change=sync_lsl_from_sidebar)
         st.session_state.usl_str = usl_sidebar
         st.session_state.lsl_str = lsl_sidebar
-        seed = st.number_input("随机种子", value=42, step=1)
+        seed = st.number_input(t("random_seed"), value=42, step=1)
 
-        # 关于分析系统
         st.markdown("---")
-        st.markdown("### 关于分析系统")
-        st.markdown("""
-        - **设计变量**：根据输入参数的公式计算得出。
-        - **参数抽样**：每个参数独立根据其概率密度函数（PDF）进行随机抽样。
-        
-        **输出结果：**
-        - 预测设计变量在量产阶段的分布形态、均值及失效率。
-        - 量化各设计参数对输出变量的影响百分比。
-        - 通过调节规格上下限，快速确定合理的失效率目标，从而定义合理的工程规格。
-        """)
+        st.markdown(f"### {t('about_system')}")
+        st.markdown(t("about_desc1"))
+        st.markdown(t("about_desc2"))
+        st.markdown(t("output_title"))
+        st.markdown(t("output1"))
+        st.markdown(t("output2"))
+        st.markdown(t("output3"))
 
-        # 分析人信息
         st.markdown("---")
-        st.markdown("### 分析人信息")
-        analyst_name = st.text_input("分析人姓名", value=st.session_state.analyst_name, key="analyst_name_input")
-        analyst_title = st.text_input("分析人头衔（可选）", value=st.session_state.analyst_title, key="analyst_title_input")
+        st.markdown(f"### {t('analyst_info')}")
+        analyst_name = st.text_input(t("analyst_name"), value=st.session_state.analyst_name, key="analyst_name_input")
+        analyst_title = st.text_input(t("analyst_title"), value=st.session_state.analyst_title, key="analyst_title_input")
         st.session_state.analyst_name = analyst_name
         st.session_state.analyst_title = analyst_title
 
-        # 联系信息
         st.markdown("---")
-        st.markdown("**联系：**")
-        st.markdown("电邮: Techlife2027@gmail.com")
+        st.markdown(f"**{t('contact')}**")
+        st.markdown(t("email"))
 
     # 参数输入表格
-    st.markdown('<div class="section-header">📝 参数输入</div>', unsafe_allow_html=True)
-
+    st.markdown(f'<div class="section-header">{t("param_input")}</div>', unsafe_allow_html=True)
     header_cols = st.columns([0.3, 1.5, 1, 1, 1.2, 0.3])
-    header_cols[0].markdown("**字母**")
-    header_cols[1].markdown("**参数名称**")
-    header_cols[2].markdown("**均值(Typ)**")
-    header_cols[3].markdown("**标准差(Std)**")
-    header_cols[4].markdown("**分布**")
-    header_cols[5].markdown("**删除**")
+    header_cols[0].markdown(f"**{t('letter')}**")
+    header_cols[1].markdown(f"**{t('param_name')}**")
+    header_cols[2].markdown(f"**{t('mean')}**")
+    header_cols[3].markdown(f"**{t('std')}**")
+    header_cols[4].markdown(f"**{t('distribution')}**")
+    header_cols[5].markdown(f"**{t('delete')}**")
 
     rows_data = []
+    distributions_list = get_distributions()
     for idx, row in st.session_state.params.iterrows():
         letter = chr(ord('A') + idx)
         cols = st.columns([0.3, 1.5, 1, 1, 1.2, 0.3])
@@ -553,59 +787,59 @@ def main():
         with cols[3]:
             std_val = st.number_input("", value=float(row["标准差(Std)"]), step=0.01, format="%.4f", key=f"param_std_{idx}", label_visibility="collapsed")
         with cols[4]:
-            dist_val = st.selectbox("", DISTRIBUTIONS, index=DISTRIBUTIONS.index(row["分布"]) if row["分布"] in DISTRIBUTIONS else 0, key=f"param_dist_{idx}", label_visibility="collapsed")
+            dist_val = st.selectbox("", distributions_list, index=distributions_list.index(row["分布"]) if row["分布"] in distributions_list else 0, key=f"param_dist_{idx}", label_visibility="collapsed")
         with cols[5]:
             delete = st.button("🗑️", key=f"del_{idx}")
 
         current_dist_params = row.get("分布参数", {}) if isinstance(row.get("分布参数"), dict) else {}
-        if dist_val in ["均匀分布", "对数正态分布", "威布尔分布", "三角分布"]:
-            if dist_val == "均匀分布" and "low" not in current_dist_params:
+        if dist_val in [t("dist_uniform"), t("dist_lognorm"), t("dist_weibull"), t("dist_tri")]:
+            if dist_val == t("dist_uniform") and "low" not in current_dist_params:
                 current_dist_params["low"] = mean_val - 3 * std_val
                 current_dist_params["high"] = mean_val + 3 * std_val
-            elif dist_val == "对数正态分布" and "mean_log" not in current_dist_params:
+            elif dist_val == t("dist_lognorm") and "mean_log" not in current_dist_params:
                 current_dist_params["mean_log"] = 0.0
                 current_dist_params["sigma_log"] = 1.0
-            elif dist_val == "威布尔分布" and "shape" not in current_dist_params:
+            elif dist_val == t("dist_weibull") and "shape" not in current_dist_params:
                 current_dist_params["shape"] = 1.0
                 current_dist_params["scale"] = 1.0
-            elif dist_val == "三角分布" and "left" not in current_dist_params:
+            elif dist_val == t("dist_tri") and "left" not in current_dist_params:
                 current_dist_params["left"] = mean_val - 3 * std_val
                 current_dist_params["mode"] = mean_val
                 current_dist_params["right"] = mean_val + 3 * std_val
 
-        need_expand = dist_val in ["均匀分布", "对数正态分布", "威布尔分布", "三角分布"]
+        need_expand = dist_val in [t("dist_uniform"), t("dist_lognorm"), t("dist_weibull"), t("dist_tri")]
         if need_expand:
-            with st.expander(f"⚙️ 配置 {dist_val} 参数", expanded=True):
-                if dist_val == "均匀分布":
-                    low = st.number_input("下限", value=float(current_dist_params.get("low", mean_val - 3*std_val)), key=f"uniform_low_{idx}", step=0.1)
-                    high = st.number_input("上限", value=float(current_dist_params.get("high", mean_val + 3*std_val)), key=f"uniform_high_{idx}", step=0.1)
+            with st.expander(t("configure").format(dist_val), expanded=True):
+                if dist_val == t("dist_uniform"):
+                    low = st.number_input(t("uniform_low"), value=float(current_dist_params.get("low", mean_val - 3*std_val)), key=f"uniform_low_{idx}", step=0.1)
+                    high = st.number_input(t("uniform_high"), value=float(current_dist_params.get("high", mean_val + 3*std_val)), key=f"uniform_high_{idx}", step=0.1)
                     if low >= high:
-                        st.error("下限必须小于上限")
+                        st.error(t("error_low_high"))
                     else:
                         current_dist_params["low"] = low
                         current_dist_params["high"] = high
-                elif dist_val == "对数正态分布":
-                    mean_log = st.number_input("对数均值 (μ_log)", value=float(current_dist_params.get("mean_log", 0.0)), key=f"lognorm_meanlog_{idx}", step=0.1)
-                    sigma_log = st.number_input("对数标准差 (σ_log)", value=float(current_dist_params.get("sigma_log", 1.0)), key=f"lognorm_sigmalog_{idx}", step=0.05, format="%.3f")
+                elif dist_val == t("dist_lognorm"):
+                    mean_log = st.number_input(t("lognorm_meanlog"), value=float(current_dist_params.get("mean_log", 0.0)), key=f"lognorm_meanlog_{idx}", step=0.1)
+                    sigma_log = st.number_input(t("lognorm_sigmalog"), value=float(current_dist_params.get("sigma_log", 1.0)), key=f"lognorm_sigmalog_{idx}", step=0.05, format="%.3f")
                     if sigma_log <= 0:
-                        st.error("对数标准差必须大于0")
+                        st.error(t("error_sigma"))
                     else:
                         current_dist_params["mean_log"] = mean_log
                         current_dist_params["sigma_log"] = sigma_log
-                elif dist_val == "威布尔分布":
-                    shape = st.number_input("形状参数 (k)", value=float(current_dist_params.get("shape", 1.0)), key=f"weibull_shape_{idx}", step=0.1, min_value=0.1)
-                    scale = st.number_input("尺度参数 (λ)", value=float(current_dist_params.get("scale", 1.0)), key=f"weibull_scale_{idx}", step=0.1, min_value=0.1)
+                elif dist_val == t("dist_weibull"):
+                    shape = st.number_input(t("weibull_shape"), value=float(current_dist_params.get("shape", 1.0)), key=f"weibull_shape_{idx}", step=0.1, min_value=0.1)
+                    scale = st.number_input(t("weibull_scale"), value=float(current_dist_params.get("scale", 1.0)), key=f"weibull_scale_{idx}", step=0.1, min_value=0.1)
                     if shape <= 0 or scale <= 0:
-                        st.error("形状和尺度参数必须 > 0")
+                        st.error(t("error_weibull"))
                     else:
                         current_dist_params["shape"] = shape
                         current_dist_params["scale"] = scale
-                elif dist_val == "三角分布":
-                    left = st.number_input("最小值", value=float(current_dist_params.get("left", mean_val - 3*std_val)), key=f"tri_left_{idx}", step=0.1)
-                    mode = st.number_input("最可能值", value=float(current_dist_params.get("mode", mean_val)), key=f"tri_mode_{idx}", step=0.1)
-                    right = st.number_input("最大值", value=float(current_dist_params.get("right", mean_val + 3*std_val)), key=f"tri_right_{idx}", step=0.1)
+                elif dist_val == t("dist_tri"):
+                    left = st.number_input(t("tri_left"), value=float(current_dist_params.get("left", mean_val - 3*std_val)), key=f"tri_left_{idx}", step=0.1)
+                    mode = st.number_input(t("tri_mode"), value=float(current_dist_params.get("mode", mean_val)), key=f"tri_mode_{idx}", step=0.1)
+                    right = st.number_input(t("tri_right"), value=float(current_dist_params.get("right", mean_val + 3*std_val)), key=f"tri_right_{idx}", step=0.1)
                     if not (left <= mode <= right):
-                        st.error("必须满足：最小值 ≤ 最可能值 ≤ 最大值")
+                        st.error(t("error_tri"))
                     else:
                         current_dist_params["left"] = left
                         current_dist_params["mode"] = mode
@@ -628,12 +862,12 @@ def main():
                 "分布": dist_val,
                 "分布参数": dist_params
             })
-    if st.button("➕ 添加参数行", use_container_width=True):
+    if st.button(t("add_row"), use_container_width=True):
         new_params.append({
             "参数名称": "新参数",
             "均值(Typ)": 0.0,
             "标准差(Std)": 0.0,
-            "分布": "正态分布（完整）",
+            "分布": t("dist_full"),
             "分布参数": {}
         })
 
@@ -641,49 +875,47 @@ def main():
     update_param_letters()
 
     # 公式定义区域
-    st.markdown('<div class="section-header">📐 公式定义（设计值）</div>', unsafe_allow_html=True)
-
-    st.markdown('<span class="big-label">📌 设计变量名称</span>', unsafe_allow_html=True)
+    st.markdown(f'<div class="section-header">{t("formula_def")}</div>', unsafe_allow_html=True)
+    st.markdown(f'<span class="big-label">{t("design_var_name")}</span>', unsafe_allow_html=True)
     output_name = st.text_input("", value=st.session_state.output_name, key="output_name_input", label_visibility="collapsed")
     st.session_state.output_name = output_name if output_name.strip() else "Output"
-
-    st.markdown('<span class="big-label">📝 计算公式</span>', unsafe_allow_html=True)
-    st.markdown('<div class="formula-hint">💡 可直接在公式中使用字母（A, B, C...）代表对应参数，系统将自动识别。例如：A*E*7/1000*60/(B+C+D)</div>', unsafe_allow_html=True)
+    st.markdown(f'<span class="big-label">{t("formula_label")}</span>', unsafe_allow_html=True)
+    st.markdown(f'<div class="formula-hint">{t("formula_hint")}</div>', unsafe_allow_html=True)
     formula = st.text_area("", value=st.session_state.formula, height=100, key="formula_input", label_visibility="collapsed")
     st.session_state.formula = formula
-    st.caption("支持的运算: + - * / **, 括号, 函数: sqrt, exp, log, sin, cos, tan, pi, e 等。公式中的空格会被自动优化。")
+    st.caption(t("formula_supported"))
 
     design_val = compute_design_value(st.session_state.params, formula, st.session_state.param_letters)
     if design_val is not None and not np.isnan(design_val):
         st.markdown(f"""
         <div class="design-value-card">
-            <strong>📌 当前设计值（基于均值）:</strong><br>
+            <strong>{t("design_value")}</strong><br>
             <span class="design-value-number">{output_name} = {design_val:.2f}</span>
         </div>
         """, unsafe_allow_html=True)
     else:
-        st.warning("公式无效或参数不匹配，无法计算设计值。请检查公式中的字母是否与上方对应关系一致，并确保运算正确。")
+        st.warning(t("formula_invalid"))
 
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        if st.button("开始\n蒙特卡洛模拟", type="primary", use_container_width=True):
+        if st.button(t("start_sim"), type="primary", use_container_width=True):
             if st.session_state.params.isnull().values.any():
-                st.error("参数表中存在空值，请检查！")
+                st.error(t("formula_invalid"))  # 复用
                 st.stop()
             param_names = st.session_state.params["参数名称"].astype(str).tolist()
             if len(set(param_names)) != len(param_names):
-                st.error("参数名称必须唯一！")
+                st.error(t("formula_invalid"))
                 st.stop()
             if not formula.strip():
-                st.error("公式不能为空！")
+                st.error(t("formula_invalid"))
                 st.stop()
 
-            with st.spinner("正在进行蒙特卡洛模拟..."):
+            with st.spinner(t("start_sim")):
                 sim_res = run_monte_carlo(st.session_state.params, formula, n_sim, st.session_state.param_letters, seed)
             if sim_res is None:
                 st.stop()
 
-            with st.spinner("正在计算各参数贡献度..."):
+            with st.spinner(t("start_sim")):
                 df_contrib, contributions, param_names = sensitivity_analysis(st.session_state.params, formula, n_sim, st.session_state.param_letters, seed)
 
             st.session_state.sim_results_raw = {
@@ -714,26 +946,26 @@ def main():
         lsl = parse_limit(st.session_state.lsl_str)
         cpk, failures_all, failures_up, failures_dn = compute_cpk_ppm(results, usl, lsl)
 
-        st.markdown(f'<div class="section-header">📈 模拟结果: {output_name}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="section-header">{t("sim_result").format(output_name)}</div>', unsafe_allow_html=True)
         col1, col2, col3 = st.columns(3)
         with col1:
-            st.markdown(f'<div class="metric-card"><div class="metric-label">{output_name} 均值</div><div class="metric-value">{raw["mean"]:.2f}</div></div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="metric-card"><div class="metric-label">{output_name} 标准差</div><div class="metric-value">{raw["std"]:.4f}</div></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="metric-card"><div class="metric-label">{t("mean_val").format(output_name)}</div><div class="metric-value">{raw["mean"]:.2f}</div></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="metric-card"><div class="metric-label">{t("std_val").format(output_name)}</div><div class="metric-value">{raw["std"]:.4f}</div></div>', unsafe_allow_html=True)
         with col2:
-            st.markdown(f'<div class="metric-card"><div class="metric-label">最大值</div><div class="metric-value">{raw["max"]:.2f}</div></div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="metric-card"><div class="metric-label">最小值</div><div class="metric-value">{raw["min"]:.2f}</div></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="metric-card"><div class="metric-label">{t("max_val")}</div><div class="metric-value">{raw["max"]:.2f}</div></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="metric-card"><div class="metric-label">{t("min_val")}</div><div class="metric-value">{raw["min"]:.2f}</div></div>', unsafe_allow_html=True)
         with col3:
             if cpk is not None:
-                st.markdown(f'<div class="metric-card"><div class="metric-label">Cpk</div><div class="metric-value">{cpk:.2f}</div></div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="metric-card"><div class="metric-label">{t("cpk_val")}</div><div class="metric-value">{cpk:.2f}</div></div>', unsafe_allow_html=True)
             else:
-                st.markdown('<div class="metric-card"><div class="metric-label">Cpk</div><div class="metric-value">-</div></div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="metric-card"><div class="metric-label">{t("cpk_val")}</div><div class="metric-value">-</div></div>', unsafe_allow_html=True)
 
-        st.markdown('<div class="section-header">Failure ppm level</div>', unsafe_allow_html=True)
-        st.caption("💡 可调节上下限以实时观察PPM水平的变化（留空表示无此限）")
+        st.markdown(f'<div class="section-header">{t("failure_ppm")}</div>', unsafe_allow_html=True)
+        st.caption(t("ppm_hint"))
         col_left, col_right = st.columns([1, 2])
         with col_left:
-            main_usl = st.text_input("规格上限 (USL)", value=st.session_state.usl_str, key="main_usl", on_change=sync_usl_from_main)
-            main_lsl = st.text_input("规格下限 (LSL)", value=st.session_state.lsl_str, key="main_lsl", on_change=sync_lsl_from_main)
+            main_usl = st.text_input(t("usl"), value=st.session_state.usl_str, key="main_usl", on_change=sync_usl_from_main)
+            main_lsl = st.text_input(t("lsl"), value=st.session_state.lsl_str, key="main_lsl", on_change=sync_lsl_from_main)
             st.session_state.usl_str = main_usl
             st.session_state.lsl_str = main_lsl
             usl = parse_limit(main_usl)
@@ -749,35 +981,32 @@ def main():
                 </table>
                 """, unsafe_allow_html=True)
             else:
-                st.info("未提供任何规格限，无法计算CPK和PPM。")
+                st.info(t("no_limits"))
 
-        # 分布直方图
-        st.markdown(f"### {output_name} 分布直方图")
+        st.markdown(f"### {t('histogram').format(output_name)}")
         fig_hist = plot_histogram(results, raw["bin_centers"], raw["hist_counts"], raw["x_pdf"], raw["pdf_theory"], usl, lsl, output_name, n_sim)
         st.pyplot(fig_hist)
-        st.caption(f"横轴：{output_name}   |   纵轴：频次")
+        st.caption(t("hist_caption").format(output_name))
 
-        # 设计参数影响百分比
-        st.markdown(f"### {output_name} 设计参数影响百分比")
+        st.markdown(f"### {t('effect_chart').format(output_name)}")
         fig_barh = plot_contribution_horizontal(raw["contributions"], raw["param_names"], output_name)
         st.pyplot(fig_barh)
-        st.caption("横轴：影响百分比   |   纵轴：设计参数")
+        st.caption(t("effect_caption"))
 
-        with st.expander("查看贡献百分比数据表"):
+        with st.expander(t("view_contrib")):
             st.dataframe(raw["df_contrib"][["参数", "贡献百分比_显示"]].rename(columns={"贡献百分比_显示": "贡献百分比"}), use_container_width=True)
 
-        with st.expander("查看全部模拟数据"):
+        with st.expander(t("view_data")):
             samples_df = pd.DataFrame(raw["samples"], columns=raw["param_names"])
             samples_df[output_name] = results
             st.dataframe(samples_df.round(2), use_container_width=True, height=400)
             csv = samples_df.to_csv(index=False, float_format="%.6f")
-            st.download_button("📥 下载模拟数据 (CSV)", data=csv, file_name=f"monte_carlo_data_{output_name}.csv", mime="text/csv")
+            st.download_button(t("download_csv"), data=csv, file_name=f"monte_carlo_data_{output_name}.csv", mime="text/csv")
 
-        # 生成 Word 报告（文件名带日期）
         doc_bytes = generate_word_report(raw, usl, lsl, n_sim, seed, formula, st.session_state.params, st.session_state.param_letters, st.session_state.analyst_name, st.session_state.analyst_title, output_name)
         date_str = datetime.now().strftime("%Y%m%d")
-        st.download_button("📄 下载专业报告 (Word)", data=doc_bytes, file_name=f"DFSS_Report_{output_name}_{date_str}.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
-        st.success("模拟完成！")
+        st.download_button(t("download_report"), data=doc_bytes, file_name=f"DFSS_Report_{output_name}_{date_str}.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+        st.success(t("success"))
 
 if __name__ == "__main__":
     main()
