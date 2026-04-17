@@ -37,14 +37,14 @@ if "usl" not in st.session_state:
 if "lsl" not in st.session_state:
     st.session_state.lsl = 30.0
 
-# 回调函数：更新规格限（用于双向同步）
-def update_usl_from_main():
+# ---------- 上下限双向同步回调函数 ----------
+def sync_usl_from_main():
     st.session_state.usl = st.session_state.main_usl
-def update_lsl_from_main():
+def sync_lsl_from_main():
     st.session_state.lsl = st.session_state.main_lsl
-def update_usl_from_sidebar():
+def sync_usl_from_sidebar():
     st.session_state.usl = st.session_state.usl_sidebar
-def update_lsl_from_sidebar():
+def sync_lsl_from_sidebar():
     st.session_state.lsl = st.session_state.lsl_sidebar
 
 # 回调函数：追加参数名到公式
@@ -158,11 +158,10 @@ def sensitivity_analysis(params_df: pd.DataFrame,
         "贡献百分比": contributions
     })
     df_contrib = df_contrib.sort_values("贡献百分比", ascending=False).reset_index(drop=True)
-    # 内部存储高精度，显示时格式化
-    df_contrib["贡献百分比_显示"] = df_contrib["贡献百分比"].apply(lambda x: f"{x:.2%}")
+    df_contrib["贡献百分比_显示"] = df_contrib["贡献百分比"].apply(lambda x: f"{x:.6%}")
     return df_contrib, contributions, param_names
 
-# 绘图函数：直方图（修改标识）
+# 绘图函数：直方图（标识符合附图）
 def plot_histogram(results, bin_centers, hist_counts, x_pdf, pdf_theory, usl, lsl, output_name):
     fig, ax = plt.subplots(figsize=(10, 6))
     ax.bar(bin_centers, hist_counts, width=(bin_centers[1]-bin_centers[0])*0.9,
@@ -178,7 +177,7 @@ def plot_histogram(results, bin_centers, hist_counts, x_pdf, pdf_theory, usl, ls
     ax.legend()
     return fig
 
-# 绘图函数：水平条形图（贡献百分比，修改标识）
+# 绘图函数：水平条形图（完全按照附图红色样式）
 def plot_contribution_horizontal(contributions: List[float], param_names: List[str], output_name: str):
     non_zero = [(p, c) for p, c in zip(param_names, contributions) if c > 0]
     if not non_zero:
@@ -187,14 +186,16 @@ def plot_contribution_horizontal(contributions: List[float], param_names: List[s
         ax.set_title(f"{output_name} 设计参数影响百分比")
         return fig
     names, vals = zip(*non_zero)
+    # 按贡献值升序排列（水平条形图从下往上）
     sorted_indices = np.argsort(vals)
     names = [names[i] for i in sorted_indices]
     vals = [vals[i] for i in sorted_indices]
 
     fig, ax = plt.subplots(figsize=(8, max(4, len(names)*0.4)))
     bars = ax.barh(names, vals, color='steelblue')
+    # 在条形末端显示高精度百分比（6位小数）
     for bar, val in zip(bars, vals):
-        ax.text(val + 0.01, bar.get_y() + bar.get_height()/2, f'{val:.2%}',
+        ax.text(val + 0.01, bar.get_y() + bar.get_height()/2, f'{val:.6%}',
                 va='center', fontsize=9)
     ax.set_xlabel("影响百分比")
     ax.set_title(f"{output_name} 设计参数影响百分比")
@@ -215,13 +216,12 @@ def compute_cpk_ppm(results: np.ndarray, usl: float, lsl: float):
     failures_all = failures_up + failures_dn
     return cpk, failures_all, failures_up, failures_dn
 
-# 生成 HTML 报告（保留高精度但显示两位小数）
+# 生成 HTML 报告（保留高精度）
 def generate_report(raw, usl, lsl, n_sim, seed, formula, params_df):
     results = raw["results"]
     output_name = raw["output_name"]
     cpk, failures_all, failures_up, failures_dn = compute_cpk_ppm(results, usl, lsl)
 
-    # 将 matplotlib 图表转为 base64
     fig_hist = plot_histogram(results, raw["bin_centers"], raw["hist_counts"],
                               raw["x_pdf"], raw["pdf_theory"], usl, lsl, output_name)
     buf_hist = BytesIO()
@@ -238,7 +238,7 @@ def generate_report(raw, usl, lsl, n_sim, seed, formula, params_df):
     plt.close(fig_barh)
 
     df_contrib = raw["df_contrib"].copy()
-    df_contrib["贡献百分比_显示"] = df_contrib["贡献百分比"].apply(lambda x: f"{x:.2%}")
+    df_contrib["贡献百分比_显示"] = df_contrib["贡献百分比"].apply(lambda x: f"{x:.6%}")
 
     samples_df = pd.DataFrame(raw["samples"], columns=param_names)
     samples_df[output_name] = results
@@ -345,9 +345,9 @@ def generate_report(raw, usl, lsl, n_sim, seed, formula, params_df):
 def main():
     st.sidebar.header("⚙️ 模拟设置")
     n_sim = st.sidebar.number_input("模拟次数 (Trail number)", min_value=100, max_value=100000, value=1000, step=100)
-    # 侧边栏的规格限输入，绑定到 session_state，并设置 on_change 实现双向同步
-    st.sidebar.number_input("规格上限 (Upper L)", value=st.session_state.usl, step=0.1, format="%.4f", key="usl_sidebar", on_change=update_usl_from_sidebar)
-    st.sidebar.number_input("规格下限 (Lower L)", value=st.session_state.lsl, step=0.1, format="%.4f", key="lsl_sidebar", on_change=update_lsl_from_sidebar)
+    # 侧边栏规格限输入（双向同步）
+    st.sidebar.number_input("规格上限 (Upper L)", value=st.session_state.usl, step=0.1, format="%.4f", key="usl_sidebar", on_change=sync_usl_from_sidebar)
+    st.sidebar.number_input("规格下限 (Lower L)", value=st.session_state.lsl, step=0.1, format="%.4f", key="lsl_sidebar", on_change=sync_lsl_from_sidebar)
     seed = st.sidebar.number_input("随机种子", value=42, step=1)
 
     st.markdown("---")
@@ -427,14 +427,14 @@ def main():
         col2.metric("最大值", f"{raw['max']:.2f}")
         col2.metric("最小值", f"{raw['min']:.2f}")
 
-        # Failure ppm level 区域
+        # Failure ppm level 区域（左侧输入框与侧边栏同步）
         st.subheader("Failure ppm level")
         st.caption("💡 可调节上下限以实时观察PPM水平的变化")
         col_left, col_right = st.columns([1, 2])
         with col_left:
             # 主界面规格限输入框，与 session_state 双向同步
-            st.number_input("规格上限 (USL)", value=st.session_state.usl, step=0.1, format="%.4f", key="main_usl", on_change=update_usl_from_main)
-            st.number_input("规格下限 (LSL)", value=st.session_state.lsl, step=0.1, format="%.4f", key="main_lsl", on_change=update_lsl_from_main)
+            st.number_input("规格上限 (USL)", value=st.session_state.usl, step=0.1, format="%.4f", key="main_usl", on_change=sync_usl_from_main)
+            st.number_input("规格下限 (LSL)", value=st.session_state.lsl, step=0.1, format="%.4f", key="main_lsl", on_change=sync_lsl_from_main)
         with col_right:
             ppm_html = f"""
             <style>
@@ -471,7 +471,7 @@ def main():
                                   raw["x_pdf"], raw["pdf_theory"], usl, lsl, output_name)
         st.pyplot(fig_hist)
 
-        # 设计参数影响百分比（新标识）
+        # 设计参数影响百分比（完全按照附图）
         st.subheader(f"设计参数对 {output_name} 影响百分比")
         contributions = raw["contributions"]
         param_names = raw["param_names"]
@@ -485,10 +485,9 @@ def main():
         with st.expander("查看全部模拟数据"):
             samples_df = pd.DataFrame(raw["samples"], columns=param_names)
             samples_df[output_name] = results
-            # 显示时保留两位小数
             display_df = samples_df.round(2)
             st.dataframe(display_df, use_container_width=True, height=400)
-            csv = samples_df.to_csv(index=False, float_format="%.6f")  # 下载保留高精度
+            csv = samples_df.to_csv(index=False, float_format="%.6f")
             st.download_button(
                 label="📥 下载模拟数据 (CSV)",
                 data=csv,
