@@ -79,42 +79,17 @@ st.markdown("""
         text-align: center;
         border-left: 5px solid #3498db;
     }
-    /* 自定义表格按钮样式 */
-    .param-row {
-        margin-bottom: 8px;
-        display: flex;
-        align-items: center;
-        gap: 10px;
-    }
-    .param-name {
-        flex: 2;
+    .big-label {
+        font-size: 1.2rem;
         font-weight: 500;
+        margin-bottom: 5px;
     }
-    .param-mean, .param-std, .param-dist {
-        flex: 1;
-        text-align: center;
+    .formula-hint {
+        font-size: 0.9rem;
+        color: #6c757d;
+        margin-top: 5px;
+        text-align: right;
     }
-    .param-button {
-        flex: 0.5;
-        text-align: center;
-    }
-    .table-header {
-        font-weight: bold;
-        background-color: #f0f2f6;
-        padding: 8px;
-        border-radius: 5px;
-        margin-bottom: 10px;
-        display: flex;
-        gap: 10px;
-    }
-    .table-header > div {
-        text-align: center;
-    }
-    .table-header .param-name-header { flex: 2; }
-    .table-header .param-mean-header { flex: 1; }
-    .table-header .param-std-header { flex: 1; }
-    .table-header .param-dist-header { flex: 1; }
-    .table-header .param-button-header { flex: 0.5; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -159,20 +134,23 @@ def sync_lsl_from_sidebar():
     st.session_state.lsl_str = st.session_state.lsl_sidebar
 
 def append_param(param_name: str):
-    """将参数名追加到公式中，并立即刷新页面"""
+    """将参数名追加到公式中，并自动处理空格和运算符"""
     current = st.session_state.formula
-    # 如果当前公式不为空且末尾不是空格或运算符，添加空格分隔
+    # 如果当前公式不为空且末尾不是空格或运算符，则添加一个空格
     if current and not current.endswith((' ', '+', '-', '*', '/', '(')):
         st.session_state.formula = current + " " + param_name
     else:
         st.session_state.formula = current + param_name
-    # 不需要 rerun，因为 session_state 变化会自动触发重新渲染
+    # 使用 rerun 强制刷新界面
+    st.rerun()
 
 def safe_eval_with_mapping(expr: str, param_names: List[str], context_values: List[float]) -> float:
     temp_names = [f"__p{i}__" for i in range(len(param_names))]
+    # 按名称长度降序排序，避免部分匹配
     sorted_params = sorted(zip(param_names, temp_names), key=lambda x: len(x[0]), reverse=True)
     expr_temp = expr
     for orig, temp in sorted_params:
+        # 使用正则确保匹配独立单词（前后不是字母数字下划线）
         pattern = r'(?<![a-zA-Z0-9_])' + re.escape(orig) + r'(?![a-zA-Z0-9_])'
         expr_temp = re.sub(pattern, temp, expr_temp)
     context = {temp: val for temp, val in zip(temp_names, context_values)}
@@ -185,8 +163,7 @@ def safe_eval_with_mapping(expr: str, param_names: List[str], context_values: Li
     try:
         result = eval(expr_temp, {"__builtins__": {}}, allowed_names)
         return float(result)
-    except Exception as e:
-        # 不显示错误，返回 NaN
+    except Exception:
         return np.nan
 
 def compute_design_value(params_df: pd.DataFrame, formula: str) -> Optional[float]:
@@ -491,11 +468,13 @@ def main():
         st.session_state.lsl_str = lsl_sidebar
         seed = st.number_input("随机种子", value=42, step=1)
 
-    # 参数输入区域 - 自定义表格，每行带插入按钮
+    # 参数输入区域 - 自定义表格，按钮在最左侧
     st.markdown('<div class="section-header">📝 参数输入</div>', unsafe_allow_html=True)
 
-    # 显示表头
-    col1, col2, col3, col4, col5 = st.columns([2, 1, 1, 1, 0.6])
+    # 显示表头（列顺序：插入按钮、参数名称、均值、标准差、分布）
+    col0, col1, col2, col3, col4 = st.columns([0.6, 2, 1, 1, 1])
+    with col0:
+        st.markdown("**插入**")
     with col1:
         st.markdown("**参数名称**")
     with col2:
@@ -504,8 +483,6 @@ def main():
         st.markdown("**标准差(Std)**")
     with col4:
         st.markdown("**分布**")
-    with col5:
-        st.markdown("**插入**")
 
     # 存储编辑后的参数
     param_names_updated = []
@@ -513,9 +490,13 @@ def main():
     stds_updated = []
     dists_updated = []
 
-    # 遍历每一行，显示可编辑控件 + 插入按钮
+    # 遍历每一行
     for idx, row in st.session_state.params.iterrows():
-        c1, c2, c3, c4, c5 = st.columns([2, 1, 1, 1, 0.6])
+        c0, c1, c2, c3, c4 = st.columns([0.6, 2, 1, 1, 1])
+        with c0:
+            # 插入按钮（+号）
+            if st.button("➕", key=f"insert_btn_{idx}", help=f"插入「{row['参数名称']}」到公式"):
+                append_param(row["参数名称"])
         with c1:
             name = st.text_input("", value=row["参数名称"], key=f"param_name_{idx}", label_visibility="collapsed")
         with c2:
@@ -524,17 +505,13 @@ def main():
             std_val = st.number_input("", value=float(row["标准差(Std)"]), step=0.01, format="%.4f", key=f"param_std_{idx}", label_visibility="collapsed")
         with c4:
             dist_val = st.selectbox("", ["正态分布"], index=0, key=f"param_dist_{idx}", label_visibility="collapsed")
-        with c5:
-            # 插入按钮
-            if st.button("➕", key=f"insert_btn_{idx}", help=f"插入 {name} 到公式"):
-                append_param(name)
-                st.rerun()
+
         param_names_updated.append(name)
         means_updated.append(mean_val)
         stds_updated.append(std_val)
         dists_updated.append(dist_val)
 
-    # 更新 session_state 中的参数 DataFrame
+    # 更新 DataFrame
     updated_df = pd.DataFrame({
         "参数名称": param_names_updated,
         "均值(Typ)": means_updated,
@@ -545,10 +522,20 @@ def main():
 
     # 公式定义区域
     st.markdown('<div class="section-header">📐 公式定义（设计值）</div>', unsafe_allow_html=True)
-    output_name = st.text_input("输出变量名称", value=st.session_state.output_name, key="output_name_input")
+
+    # 第一行：设计变量名称（放大字体）
+    col_label, col_hint = st.columns([1, 1])
+    with col_label:
+        st.markdown('<span class="big-label">📌 设计变量名称</span>', unsafe_allow_html=True)
+    with col_hint:
+        st.markdown('<div class="formula-hint">💡 点击表格左侧的「+」按钮，将参数插入到设计变量公式中</div>', unsafe_allow_html=True)
+
+    output_name = st.text_input("", value=st.session_state.output_name, key="output_name_input", label_visibility="collapsed")
     st.session_state.output_name = output_name if output_name.strip() else "Output"
 
-    formula = st.text_area("计算公式", value=st.session_state.formula, height=100, key="formula_input")
+    # 计算公式区域（放大字体）
+    st.markdown('<span class="big-label">📝 计算公式</span>', unsafe_allow_html=True)
+    formula = st.text_area("", value=st.session_state.formula, height=100, key="formula_input", label_visibility="collapsed")
     st.session_state.formula = formula
     st.caption("支持的运算: + - * / **, 括号, 函数: sqrt, exp, log, sin, cos, tan, pi, e 等")
 
