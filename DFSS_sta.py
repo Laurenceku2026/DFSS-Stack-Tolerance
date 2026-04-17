@@ -21,14 +21,19 @@ if "params" not in st.session_state:
         "分布": ["正态分布", "正态分布", "正态分布", "正态分布", "正态分布"]
     })
 
-if "sim_results" not in st.session_state:
-    st.session_state.sim_results = None
+if "sim_results_raw" not in st.session_state:
+    st.session_state.sim_results_raw = None  # 存储原始模拟结果数组和相关信息
 
 if "formula" not in st.session_state:
     st.session_state.formula = "Cell Cap * V * 7 / 1000 * 60 / (Suction P + Brush P + Other(Pump+display))"
 
 if "output_name" not in st.session_state:
     st.session_state.output_name = "Runtime"
+
+if "usl" not in st.session_state:
+    st.session_state.usl = 40.0
+if "lsl" not in st.session_state:
+    st.session_state.lsl = 30.0
 
 # 回调函数：追加参数名到公式
 def append_param(param_name: str):
@@ -64,8 +69,6 @@ def safe_eval_with_mapping(expr: str, param_names: List[str], context_values: Li
 def run_monte_carlo(params_df: pd.DataFrame,
                     formula: str,
                     n_sim: int,
-                    usl: float,
-                    lsl: float,
                     seed: int = 42) -> Dict[str, Any]:
     np.random.seed(seed)
     n_params = len(params_df)
@@ -90,11 +93,6 @@ def run_monte_carlo(params_df: pd.DataFrame,
     max_out = np.max(results)
     min_out = np.min(results)
 
-    cpk = min((usl - mean_out) / (3 * std_out), (mean_out - lsl) / (3 * std_out)) if std_out > 0 else 0
-    failures_up = np.sum(results > usl) / len(results) * 1e6
-    failures_dn = np.sum(results < lsl) / len(results) * 1e6
-    failures_all = failures_up + failures_dn
-
     hist_counts, bin_edges = np.histogram(results, bins=25, density=False)
     bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
     x_pdf = np.linspace(min_out, max_out, 200)
@@ -106,10 +104,6 @@ def run_monte_carlo(params_df: pd.DataFrame,
         "std": std_out,
         "max": max_out,
         "min": min_out,
-        "cpk": cpk,
-        "failures_all": failures_all,
-        "failures_up": failures_up,
-        "failures_dn": failures_dn,
         "hist_counts": hist_counts,
         "bin_edges": bin_edges,
         "bin_centers": bin_centers,
@@ -154,7 +148,7 @@ def sensitivity_analysis(params_df: pd.DataFrame,
     df_contrib["贡献百分比"] = df_contrib["贡献百分比"].apply(lambda x: f"{x:.2%}")
     return df_contrib, contributions, param_names
 
-# 绘图函数
+# 绘图函数：直方图
 def plot_histogram(results, bin_centers, hist_counts, x_pdf, pdf_theory, usl, lsl, output_name):
     fig, ax = plt.subplots(figsize=(10, 6))
     ax.bar(bin_centers, hist_counts, width=(bin_centers[1]-bin_centers[0])*0.9,
@@ -170,24 +164,59 @@ def plot_histogram(results, bin_centers, hist_counts, x_pdf, pdf_theory, usl, ls
     ax.legend()
     return fig
 
-def plot_contribution(contributions, param_names, output_name):
-    fig, ax = plt.subplots(figsize=(8, 6))
+# 绘图函数：水平条形图（贡献百分比）
+def plot_contribution_horizontal(contributions: List[float], param_names: List[str], output_name: str):
+    # 过滤掉贡献为0的项
     non_zero = [(p, c) for p, c in zip(param_names, contributions) if c > 0]
     if not non_zero:
+        fig, ax = plt.subplots(figsize=(8, 4))
         ax.text(0.5, 0.5, "无显著贡献", ha='center', va='center')
+        ax.set_title(f"设计参数对 {output_name} 影响百分比")
         return fig
     names, vals = zip(*non_zero)
-    ax.pie(vals, labels=names, autopct='%1.1f%%', startangle=90)
-    ax.axis('equal')
-    ax.set_title(f"各参数对 {output_name} 方差的贡献百分比")
+    # 按贡献值升序排列（水平条形图从下往上）
+    sorted_indices = np.argsort(vals)
+    names = [names[i] for i in sorted_indices]
+    vals = [vals[i] for i in sorted_indices]
+
+    fig, ax = plt.subplots(figsize=(8, max(4, len(names)*0.4)))
+    bars = ax.barh(names, vals, color='steelblue')
+    # 添加数据标签
+    for bar, val in zip(bars, vals):
+        ax.text(val + 0.01, bar.get_y() + bar.get_height()/2, f'{val:.2%}',
+                va='center', fontsize=9)
+    ax.set_xlabel("贡献百分比")
+    ax.set_title(f"设计参数对 {output_name} 影响百分比")
+    ax.set_xlim(0, max(vals) * 1.15)
+    ax.grid(axis='x', linestyle='--', alpha=0.7)
     return fig
+
+# 计算 CPK 和 PPM（基于已保存的结果数组）
+def compute_cpk_ppm(results: np.ndarray, usl: float, lsl: float):
+    mean_out = np.mean(results)
+    std_out = np.std(results, ddof=1)
+    if std_out == 0:
+        cpk = 0
+    else:
+        cpk = min((usl - mean_out) / (3 * std_out), (mean_out - lsl) / (3 * std_out))
+    failures_up = np.sum(results > usl) / len(results) * 1e6
+    failures_dn = np.sum(results < lsl) / len(results) * 1e6
+    failures_all = failures_up + failures_dn
+    return cpk, failures_all, failures_up, failures_dn
 
 # 主程序
 def main():
     st.sidebar.header("⚙️ 模拟设置")
     n_sim = st.sidebar.number_input("模拟次数 (Trail number)", min_value=100, max_value=100000, value=1000, step=100)
-    usl = st.sidebar.number_input("规格上限 (Upper L)", value=40.0, step=1.0)
-    lsl = st.sidebar.number_input("规格下限 (Lower L)", value=30.0, step=1.0)
+    # 使用 session_state 存储 usl/lsl，并设置 on_change 回调来触发重新计算
+    def on_limits_change():
+        if st.session_state.sim_results_raw is not None:
+            # 重新计算 CPK 和 PPM 并更新显示（无需 rerun，因为后续会读取最新值）
+            pass
+    usl = st.sidebar.number_input("规格上限 (Upper L)", value=st.session_state.usl, step=1.0, key="usl_input", on_change=on_limits_change)
+    lsl = st.sidebar.number_input("规格下限 (Lower L)", value=st.session_state.lsl, step=1.0, key="lsl_input", on_change=on_limits_change)
+    st.session_state.usl = usl
+    st.session_state.lsl = lsl
     seed = st.sidebar.number_input("随机种子", value=42, step=1)
 
     st.markdown("---")
@@ -196,20 +225,17 @@ def main():
 
     st.markdown("---")
     st.subheader("📐 公式定义")
-    # 输出名称输入
     output_name = st.text_input("输出变量名称", value=st.session_state.output_name, key="output_name_input")
     st.session_state.output_name = output_name if output_name.strip() else "Output"
 
-    st.caption("使用与表格中**完全一致**的参数名称（支持中文、空格、特殊字符），点击下方按钮可插入参数。")
+    st.caption("使用与表格中**完全一致**的参数名称，点击下方按钮可插入参数。")
     param_names = edited_df["参数名称"].astype(str).tolist()
-    # 创建按钮列，每行最多5个
     cols_per_row = 5
     for i in range(0, len(param_names), cols_per_row):
         cols = st.columns(min(cols_per_row, len(param_names) - i))
         for idx, name in enumerate(param_names[i:i+cols_per_row]):
             with cols[idx]:
                 st.button(f"➕ {name}", key=f"btn_{name}", on_click=append_param, args=(name,))
-    # 公式输入框，绑定 session_state.formula
     formula = st.text_area("计算公式", value=st.session_state.formula, height=100, key="formula_input")
     st.session_state.formula = formula
     st.caption("支持的运算: + - * / **, 括号, 函数: sqrt, exp, log, sin, cos, tan, pi, e 等")
@@ -226,56 +252,83 @@ def main():
             return
 
         with st.spinner("正在进行蒙特卡洛模拟..."):
-            sim_res = run_monte_carlo(edited_df, formula, n_sim, usl, lsl, seed)
+            sim_res = run_monte_carlo(edited_df, formula, n_sim, seed)
         if sim_res is None:
             return
 
         with st.spinner("正在计算各参数贡献度..."):
             df_contrib, contributions, param_names = sensitivity_analysis(edited_df, formula, n_sim, seed)
 
-        st.session_state.sim_results = {
-            "sim_res": sim_res,
+        # 保存原始结果（用于实时更新 CPK/PPM）
+        st.session_state.sim_results_raw = {
+            "results": sim_res["results"],
+            "mean": sim_res["mean"],
+            "std": sim_res["std"],
+            "max": sim_res["max"],
+            "min": sim_res["min"],
+            "hist_counts": sim_res["hist_counts"],
+            "bin_edges": sim_res["bin_edges"],
+            "bin_centers": sim_res["bin_centers"],
+            "x_pdf": sim_res["x_pdf"],
+            "pdf_theory": sim_res["pdf_theory"],
+            "param_names": sim_res["param_names"],
             "df_contrib": df_contrib,
             "contributions": contributions,
-            "param_names": param_names,
-            "formula": formula,
             "params_df": edited_df,
-            "output_name": output_name
+            "output_name": output_name,
+            "formula": formula,
         }
 
-    if st.session_state.sim_results:
-        res = st.session_state.sim_results["sim_res"]
-        df_contrib = st.session_state.sim_results["df_contrib"]
-        contributions = st.session_state.sim_results["contributions"]
-        param_names = st.session_state.sim_results["param_names"]
-        output_name = st.session_state.sim_results["output_name"]
+    # 显示结果（如果已有模拟结果）
+    if st.session_state.sim_results_raw is not None:
+        raw = st.session_state.sim_results_raw
+        results = raw["results"]
+        output_name = raw["output_name"]
+        # 根据当前 USL/LSL 实时计算 CPK 和 PPM
+        cpk, failures_all, failures_up, failures_dn = compute_cpk_ppm(results, usl, lsl)
 
         st.header(f"📈 模拟结果: {output_name}")
+        # 第一行：基本统计量
         col1, col2, col3 = st.columns(3)
-        col1.metric(f"{output_name} 均值", f"{res['mean']:.4f}")
-        col1.metric(f"{output_name} 标准差", f"{res['std']:.4f}")
-        col2.metric("最大值", f"{res['max']:.4f}")
-        col2.metric("最小值", f"{res['min']:.4f}")
-        col3.metric("Cpk", f"{res['cpk']:.4f}")
-        col3.metric("总失效 ppm", f"{res['failures_all']:.2f}")
+        col1.metric(f"{output_name} 均值", f"{raw['mean']:.4f}")
+        col1.metric(f"{output_name} 标准差", f"{raw['std']:.4f}")
+        col2.metric("最大值", f"{raw['max']:.4f}")
+        col2.metric("最小值", f"{raw['min']:.4f}")
 
+        # 第二行：Failure ppm level 表格（仿Excel样式）
+        st.subheader("Failure ppm level")
+        ppm_df = pd.DataFrame({
+            "CPK": [f"{cpk:.2f}"],
+            "Failure All": [f"{failures_all:.2f}"],
+            "Failure Up": [f"{failures_up:.2f}"],
+            "Failure Dn": [f"{failures_dn:.2f}"]
+        })
+        st.table(ppm_df)  # 使用 table 更接近原图风格
+
+        # 分布直方图
         st.subheader("分布直方图")
-        fig_hist = plot_histogram(res['results'], res['bin_centers'], res['hist_counts'],
-                                  res['x_pdf'], res['pdf_theory'], usl, lsl, output_name)
+        fig_hist = plot_histogram(results, raw["bin_centers"], raw["hist_counts"],
+                                  raw["x_pdf"], raw["pdf_theory"], usl, lsl, output_name)
         st.pyplot(fig_hist)
 
-        st.subheader("📊 各参数对输出方差的贡献百分比")
-        st.dataframe(df_contrib, use_container_width=True)
+        # 贡献百分比水平条形图
+        st.subheader(f"设计参数对 {output_name} 影响百分比")
+        contributions = raw["contributions"]
+        param_names = raw["param_names"]
+        fig_barh = plot_contribution_horizontal(contributions, param_names, output_name)
+        st.pyplot(fig_barh)
 
-        fig_pie = plot_contribution(contributions, param_names, output_name)
-        st.pyplot(fig_pie)
+        # 可选：显示贡献百分比数据表
+        with st.expander("查看贡献百分比数据表"):
+            st.dataframe(raw["df_contrib"], use_container_width=True)
 
         with st.expander("查看模拟数据预览"):
-            means = edited_df["均值(Typ)"].values.astype(float)
-            stds = edited_df["标准差(Std)"].values.astype(float)
+            means = raw["params_df"]["均值(Typ)"].values.astype(float)
+            stds = raw["params_df"]["标准差(Std)"].values.astype(float)
+            np.random.seed(seed)
             samples = np.random.normal(loc=means, scale=stds, size=(min(100, n_sim), len(param_names)))
             df_samples = pd.DataFrame(samples, columns=param_names)
-            df_samples[output_name] = res['results'][:100] if len(res['results']) >= 100 else np.pad(res['results'], (0,100-len(res['results'])), constant_values=np.nan)
+            df_samples[output_name] = results[:100] if len(results) >= 100 else np.pad(results, (0,100-len(results)), constant_values=np.nan)
             st.dataframe(df_samples, use_container_width=True)
 
         st.success("模拟完成！")
