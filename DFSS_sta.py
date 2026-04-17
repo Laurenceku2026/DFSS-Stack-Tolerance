@@ -22,7 +22,7 @@ st.markdown("""
     .ppm-table { border-collapse: collapse; width: 100%; margin: 0 auto; }
     .ppm-table th, .ppm-table td { border: 2px solid #000000; padding: 10px 16px; text-align: center; font-size: 1rem; }
     .ppm-table th { background-color: #e9ecef; font-weight: 600; }
-    .stButton button { background-color: #3498db; color: white; font-weight: 500; border-radius: 5px; font-size: 1.2rem; margin-top: 20px; white-space: pre-line; }  /* 支持换行 */
+    .stButton button { background-color: #3498db; color: white; font-weight: 500; border-radius: 5px; font-size: 1.2rem; margin-top: 20px; white-space: pre-line; }
     .stButton button:hover { background-color: #2980b9; }
     .design-value-card { background-color: #e8f4fd; border-radius: 10px; padding: 15px; margin-top: 15px; text-align: center; border-left: 5px solid #3498db; }
     .design-value-card strong { font-size: 1.1rem; }
@@ -30,6 +30,7 @@ st.markdown("""
     .big-label { font-size: 1.3rem; font-weight: 500; margin-bottom: 5px; }
     .param-letter { font-weight: bold; font-size: 1rem; text-align: center; background-color: #e9ecef; border-radius: 4px; padding: 6px 0; width: 40px; }
     .formula-hint { font-size: 0.9rem; color: #6c757d; margin-bottom: 5px; }
+    .expand-section { background-color: #f8f9fa; border-radius: 8px; padding: 10px; margin-top: 5px; margin-bottom: 10px; border-left: 3px solid #3498db; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -39,7 +40,8 @@ if "params" not in st.session_state:
         "参数名称": ["Cell Cap", "Suction P", "Brush P", "Other(Pump+display)", "V"],
         "均值(Typ)": [2450.0, 70.0, 30.0, 15.0, 3.6],
         "标准差(Std)": [20.74, 0.77, 0.90, 0.45, 0.0036],
-        "分布": ["正态分布", "正态分布", "正态分布", "正态分布", "正态分布"]
+        "分布": ["正态分布（完整）", "正态分布（完整）", "正态分布（完整）", "正态分布（完整）", "正态分布（完整）"],
+        "分布参数": [{} for _ in range(5)]
     })
 if "sim_results_raw" not in st.session_state:
     st.session_state.sim_results_raw = None
@@ -52,6 +54,18 @@ if "usl_str" not in st.session_state:
 if "lsl_str" not in st.session_state:
     st.session_state.lsl_str = "30.0"
 
+# 分布类型列表
+DISTRIBUTIONS = [
+    "正态分布（完整）",
+    "正态分布（正值）",
+    "正态分布（负值）",
+    "均匀分布",
+    "对数正态分布",
+    "威布尔分布",
+    "三角分布"
+]
+
+# 辅助函数：更新字母映射
 def update_param_letters():
     letters = [chr(ord('A') + i) for i in range(len(st.session_state.params))]
     st.session_state.param_letters = {
@@ -112,8 +126,44 @@ def safe_eval_with_mapping(expr: str, param_names: List[str], context_values: Li
 def compute_design_value(params_df: pd.DataFrame, formula: str, param_letters: Dict[str, str]) -> Optional[float]:
     param_names = params_df["参数名称"].astype(str).tolist()
     means = params_df["均值(Typ)"].values.astype(float)
+    # 设计值使用均值，不考虑分布
     val = safe_eval_with_mapping(formula, param_names, means, param_letters)
     return val if not np.isnan(val) else None
+
+# 根据分布类型和参数生成随机样本
+def generate_sample(dist: str, mean: float, std: float, dist_params: Dict, size: int = 1) -> np.ndarray:
+    if dist == "正态分布（完整）":
+        return np.random.normal(mean, std, size)
+    elif dist == "正态分布（正值）":
+        # 截断正态，下限0，上限无穷
+        a, b = (0 - mean) / std if std > 0 else -np.inf, np.inf
+        if std == 0:
+            return np.full(size, max(mean, 0))
+        return stats.truncnorm.rvs(a, b, loc=mean, scale=std, size=size)
+    elif dist == "正态分布（负值）":
+        a, b = -np.inf, (0 - mean) / std if std > 0 else np.inf
+        if std == 0:
+            return np.full(size, min(mean, 0))
+        return stats.truncnorm.rvs(a, b, loc=mean, scale=std, size=size)
+    elif dist == "均匀分布":
+        low = dist_params.get("low", mean - 3*std)
+        high = dist_params.get("high", mean + 3*std)
+        return np.random.uniform(low, high, size)
+    elif dist == "对数正态分布":
+        mean_log = dist_params.get("mean_log", 0.0)
+        sigma_log = dist_params.get("sigma_log", 1.0)
+        return np.random.lognormal(mean_log, sigma_log, size)
+    elif dist == "威布尔分布":
+        shape = dist_params.get("shape", 1.0)
+        scale = dist_params.get("scale", 1.0)
+        return np.random.weibull(shape, size) * scale
+    elif dist == "三角分布":
+        left = dist_params.get("left", mean - 3*std)
+        mode = dist_params.get("mode", mean)
+        right = dist_params.get("right", mean + 3*std)
+        return np.random.triangular(left, mode, right, size)
+    else:
+        return np.random.normal(mean, std, size)
 
 def run_monte_carlo(params_df: pd.DataFrame, formula: str, n_sim: int, param_letters: Dict[str, str], seed: int = 42) -> Dict[str, Any]:
     np.random.seed(seed)
@@ -121,8 +171,13 @@ def run_monte_carlo(params_df: pd.DataFrame, formula: str, n_sim: int, param_let
     param_names = params_df["参数名称"].astype(str).tolist()
     means = params_df["均值(Typ)"].values.astype(float)
     stds = params_df["标准差(Std)"].values.astype(float)
+    dists = params_df["分布"].tolist()
+    dist_params_list = params_df["分布参数"].tolist()
 
-    samples = np.random.normal(loc=means, scale=stds, size=(n_sim, n_params))
+    samples = np.zeros((n_sim, n_params))
+    for i in range(n_params):
+        samples[:, i] = generate_sample(dists[i], means[i], stds[i], dist_params_list[i], n_sim)
+
     results = []
     for i in range(n_sim):
         val = safe_eval_with_mapping(formula, param_names, samples[i, :], param_letters)
@@ -165,10 +220,12 @@ def sensitivity_analysis(params_df: pd.DataFrame, formula: str, n_sim: int, para
     param_names = params_df["参数名称"].astype(str).tolist()
     means = params_df["均值(Typ)"].values.astype(float)
     stds = params_df["标准差(Std)"].values.astype(float)
+    dists = params_df["分布"].tolist()
+    dist_params_list = params_df["分布参数"].tolist()
 
     variances = []
     for i in range(n_params):
-        samples_i = np.random.normal(loc=means[i], scale=stds[i], size=n_sim)
+        samples_i = generate_sample(dists[i], means[i], stds[i], dist_params_list[i], n_sim)
         results_i = []
         for val in samples_i:
             context_vals = means.copy()
@@ -190,6 +247,74 @@ def sensitivity_analysis(params_df: pd.DataFrame, formula: str, n_sim: int, para
     df_contrib = df_contrib.sort_values("贡献百分比", ascending=False).reset_index(drop=True)
     df_contrib["贡献百分比_显示"] = df_contrib["贡献百分比"].apply(lambda x: f"{x:.1%}")
     return df_contrib, contributions, param_names
+
+def plot_pdf(dist: str, mean: float, std: float, dist_params: Dict, ax):
+    """在给定的 ax 上绘制概率密度函数简图"""
+    if dist == "正态分布（完整）":
+        x = np.linspace(mean - 4*std, mean + 4*std, 200)
+        y = stats.norm.pdf(x, mean, std)
+        ax.plot(x, y, 'b-')
+        ax.fill_between(x, y, alpha=0.3)
+        ax.set_title(f"N(μ={mean:.1f}, σ={std:.2f})", fontsize=8)
+    elif dist == "正态分布（正值）":
+        # 截断正态
+        a, b = (0 - mean) / std if std > 0 else -np.inf, np.inf
+        if std == 0:
+            x = [max(mean, 0)]
+            y = [1]
+        else:
+            x = np.linspace(0, mean + 4*std, 200)
+            y = stats.truncnorm.pdf(x, a, b, loc=mean, scale=std)
+        ax.plot(x, y, 'g-')
+        ax.fill_between(x, y, alpha=0.3)
+        ax.set_title(f"TruncNorm(≥0)", fontsize=8)
+    elif dist == "正态分布（负值）":
+        a, b = -np.inf, (0 - mean) / std if std > 0 else np.inf
+        if std == 0:
+            x = [min(mean, 0)]
+            y = [1]
+        else:
+            x = np.linspace(mean - 4*std, 0, 200)
+            y = stats.truncnorm.pdf(x, a, b, loc=mean, scale=std)
+        ax.plot(x, y, 'r-')
+        ax.fill_between(x, y, alpha=0.3)
+        ax.set_title(f"TruncNorm(≤0)", fontsize=8)
+    elif dist == "均匀分布":
+        low = dist_params.get("low", mean - 3*std)
+        high = dist_params.get("high", mean + 3*std)
+        x = np.linspace(low, high, 200)
+        y = stats.uniform.pdf(x, low, high-low)
+        ax.plot(x, y, 'purple')
+        ax.fill_between(x, y, alpha=0.3)
+        ax.set_title(f"U({low:.1f}, {high:.1f})", fontsize=8)
+    elif dist == "对数正态分布":
+        mean_log = dist_params.get("mean_log", 0.0)
+        sigma_log = dist_params.get("sigma_log", 1.0)
+        x = np.linspace(0, np.exp(mean_log + 3*sigma_log), 200)
+        y = stats.lognorm.pdf(x, sigma_log, scale=np.exp(mean_log))
+        ax.plot(x, y, 'orange')
+        ax.fill_between(x, y, alpha=0.3)
+        ax.set_title(f"LogN(μlog={mean_log:.1f}, σlog={sigma_log:.2f})", fontsize=8)
+    elif dist == "威布尔分布":
+        shape = dist_params.get("shape", 1.0)
+        scale = dist_params.get("scale", 1.0)
+        x = np.linspace(0, scale * 3, 200)
+        y = stats.weibull_min.pdf(x, shape, scale=scale)
+        ax.plot(x, y, 'brown')
+        ax.fill_between(x, y, alpha=0.3)
+        ax.set_title(f"Weibull(k={shape:.1f}, λ={scale:.1f})", fontsize=8)
+    elif dist == "三角分布":
+        left = dist_params.get("left", mean - 3*std)
+        mode = dist_params.get("mode", mean)
+        right = dist_params.get("right", mean + 3*std)
+        x = np.linspace(left, right, 200)
+        y = stats.triang.pdf(x, (mode-left)/(right-left), loc=left, scale=right-left)
+        ax.plot(x, y, 'olive')
+        ax.fill_between(x, y, alpha=0.3)
+        ax.set_title(f"Tri({left:.1f}, {mode:.1f}, {right:.1f})", fontsize=8)
+    ax.set_xlabel("值", fontsize=6)
+    ax.set_ylabel("密度", fontsize=6)
+    ax.tick_params(axis='both', labelsize=6)
 
 def plot_histogram(results, bin_centers, hist_counts, x_pdf, pdf_theory, usl, lsl, output_name, n_sim):
     fig, ax = plt.subplots(figsize=(11, 6), dpi=100)
@@ -303,7 +428,7 @@ def generate_report(raw, usl, lsl, n_sim, seed, formula, params_df, param_letter
     stats_html = f"""
     <table class="dataframe stats-table">
         <tr><th>统计量</th><th>数值</th></tr>
-        <tr><td>均值</td><td>{raw['mean']:.2f}</td></tr>
+        <tr><td>均值</th><td>{raw['mean']:.2f}</td></tr>
         <tr><td>标准差</td><td>{raw['std']:.2f}</td></tr>
         <tr><td>最大值</td><td>{raw['max']:.2f}</td></tr>
         <tr><td>最小值</td><td>{raw['min']:.2f}</td></tr>
@@ -355,10 +480,11 @@ def main():
         st.session_state.lsl_str = lsl_sidebar
         seed = st.number_input("随机种子", value=42, step=1)
 
-    # 参数输入表格
+    # 参数输入表格（带分布选择、行内展开区域）
     st.markdown('<div class="section-header">📝 参数输入</div>', unsafe_allow_html=True)
 
-    header_cols = st.columns([0.3, 2, 1, 1, 1, 0.3])
+    # 表头
+    header_cols = st.columns([0.3, 1.5, 1, 1, 1.2, 0.3])
     header_cols[0].markdown("**字母**")
     header_cols[1].markdown("**参数名称**")
     header_cols[2].markdown("**均值(Typ)**")
@@ -366,10 +492,12 @@ def main():
     header_cols[4].markdown("**分布**")
     header_cols[5].markdown("**删除**")
 
+    # 存储每行的临时值
     rows_data = []
+    # 用于记录每一行的展开状态（由分布决定是否自动展开）
     for idx, row in st.session_state.params.iterrows():
         letter = chr(ord('A') + idx)
-        cols = st.columns([0.3, 2, 1, 1, 1, 0.3])
+        cols = st.columns([0.3, 1.5, 1, 1, 1.2, 0.3])
         with cols[0]:
             st.markdown(f'<div class="param-letter">{letter}</div>', unsafe_allow_html=True)
         with cols[1]:
@@ -379,17 +507,95 @@ def main():
         with cols[3]:
             std_val = st.number_input("", value=float(row["标准差(Std)"]), step=0.01, format="%.4f", key=f"param_std_{idx}", label_visibility="collapsed")
         with cols[4]:
-            dist_val = st.selectbox("", ["正态分布"], index=0, key=f"param_dist_{idx}", label_visibility="collapsed")
+            dist_val = st.selectbox("", DISTRIBUTIONS, index=DISTRIBUTIONS.index(row["分布"]) if row["分布"] in DISTRIBUTIONS else 0, key=f"param_dist_{idx}", label_visibility="collapsed")
         with cols[5]:
             delete = st.button("🗑️", key=f"del_{idx}")
-        rows_data.append((name, mean_val, std_val, dist_val, delete, letter))
 
+        # 获取当前存储的分布参数
+        current_dist_params = row.get("分布参数", {}) if isinstance(row.get("分布参数"), dict) else {}
+        # 根据选择的分布，初始化默认参数（如果尚未有）
+        if dist_val in ["均匀分布", "对数正态分布", "威布尔分布", "三角分布"]:
+            if dist_val == "均匀分布" and "low" not in current_dist_params:
+                current_dist_params["low"] = mean_val - 3 * std_val
+                current_dist_params["high"] = mean_val + 3 * std_val
+            elif dist_val == "对数正态分布" and "mean_log" not in current_dist_params:
+                # 默认对数均值和标准差
+                current_dist_params["mean_log"] = 0.0
+                current_dist_params["sigma_log"] = 1.0
+            elif dist_val == "威布尔分布" and "shape" not in current_dist_params:
+                current_dist_params["shape"] = 1.0
+                current_dist_params["scale"] = 1.0
+            elif dist_val == "三角分布" and "left" not in current_dist_params:
+                current_dist_params["left"] = mean_val - 3 * std_val
+                current_dist_params["mode"] = mean_val
+                current_dist_params["right"] = mean_val + 3 * std_val
+
+        # 行内展开区域（如果需要额外参数）
+        need_expand = dist_val in ["均匀分布", "对数正态分布", "威布尔分布", "三角分布"]
+        if need_expand:
+            with st.expander(f"⚙️ 配置 {dist_val} 参数", expanded=True):
+                if dist_val == "均匀分布":
+                    low = st.number_input("下限", value=float(current_dist_params.get("low", mean_val - 3*std_val)), key=f"uniform_low_{idx}", step=0.1)
+                    high = st.number_input("上限", value=float(current_dist_params.get("high", mean_val + 3*std_val)), key=f"uniform_high_{idx}", step=0.1)
+                    if low >= high:
+                        st.error("下限必须小于上限")
+                    else:
+                        current_dist_params["low"] = low
+                        current_dist_params["high"] = high
+                elif dist_val == "对数正态分布":
+                    mean_log = st.number_input("对数均值 (μ_log)", value=float(current_dist_params.get("mean_log", 0.0)), key=f"lognorm_meanlog_{idx}", step=0.1)
+                    sigma_log = st.number_input("对数标准差 (σ_log)", value=float(current_dist_params.get("sigma_log", 1.0)), key=f"lognorm_sigmalog_{idx}", step=0.05, format="%.3f")
+                    if sigma_log <= 0:
+                        st.error("对数标准差必须大于0")
+                    else:
+                        current_dist_params["mean_log"] = mean_log
+                        current_dist_params["sigma_log"] = sigma_log
+                elif dist_val == "威布尔分布":
+                    shape = st.number_input("形状参数 (k)", value=float(current_dist_params.get("shape", 1.0)), key=f"weibull_shape_{idx}", step=0.1, min_value=0.1)
+                    scale = st.number_input("尺度参数 (λ)", value=float(current_dist_params.get("scale", 1.0)), key=f"weibull_scale_{idx}", step=0.1, min_value=0.1)
+                    if shape <= 0 or scale <= 0:
+                        st.error("形状和尺度参数必须 > 0")
+                    else:
+                        current_dist_params["shape"] = shape
+                        current_dist_params["scale"] = scale
+                elif dist_val == "三角分布":
+                    left = st.number_input("最小值", value=float(current_dist_params.get("left", mean_val - 3*std_val)), key=f"tri_left_{idx}", step=0.1)
+                    mode = st.number_input("最可能值", value=float(current_dist_params.get("mode", mean_val)), key=f"tri_mode_{idx}", step=0.1)
+                    right = st.number_input("最大值", value=float(current_dist_params.get("right", mean_val + 3*std_val)), key=f"tri_right_{idx}", step=0.1)
+                    if not (left <= mode <= right):
+                        st.error("必须满足：最小值 ≤ 最可能值 ≤ 最大值")
+                    else:
+                        current_dist_params["left"] = left
+                        current_dist_params["mode"] = mode
+                        current_dist_params["right"] = right
+
+                # 显示 PDF 简图
+                fig, ax = plt.subplots(figsize=(4, 2))
+                plot_pdf(dist_val, mean_val, std_val, current_dist_params, ax)
+                st.pyplot(fig)
+                plt.close(fig)
+
+        rows_data.append((name, mean_val, std_val, dist_val, current_dist_params, delete, letter))
+
+    # 处理删除和添加
     new_params = []
-    for i, (name, mean_val, std_val, dist_val, delete, letter) in enumerate(rows_data):
+    for (name, mean_val, std_val, dist_val, dist_params, delete, letter) in rows_data:
         if not delete:
-            new_params.append({"参数名称": name, "均值(Typ)": mean_val, "标准差(Std)": std_val, "分布": dist_val})
+            new_params.append({
+                "参数名称": name,
+                "均值(Typ)": mean_val,
+                "标准差(Std)": std_val,
+                "分布": dist_val,
+                "分布参数": dist_params
+            })
     if st.button("➕ 添加参数行", use_container_width=True):
-        new_params.append({"参数名称": "新参数", "均值(Typ)": 0.0, "标准差(Std)": 0.0, "分布": "正态分布"})
+        new_params.append({
+            "参数名称": "新参数",
+            "均值(Typ)": 0.0,
+            "标准差(Std)": 0.0,
+            "分布": "正态分布（完整）",
+            "分布参数": {}
+        })
 
     st.session_state.params = pd.DataFrame(new_params)
     update_param_letters()
@@ -397,7 +603,6 @@ def main():
     # 公式定义区域
     st.markdown('<div class="section-header">📐 公式定义（设计值）</div>', unsafe_allow_html=True)
 
-    # 使用独立的 markdown 标签，确保字体与“计算公式”一致
     st.markdown('<span class="big-label">📌 设计变量名称</span>', unsafe_allow_html=True)
     output_name = st.text_input("", value=st.session_state.output_name, key="output_name_input", label_visibility="collapsed")
     st.session_state.output_name = output_name if output_name.strip() else "Output"
@@ -419,7 +624,7 @@ def main():
     else:
         st.warning("公式无效或参数不匹配，无法计算设计值。请检查公式中的字母是否与上方对应关系一致，并确保运算正确。")
 
-    # 大按钮居中，文字分两行
+    # 大按钮居中
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         if st.button("开始\n蒙特卡洛模拟", type="primary", use_container_width=True):
@@ -462,7 +667,7 @@ def main():
                 "formula": formula,
             }
 
-    # 显示结果（与之前相同）
+    # 显示结果
     if st.session_state.sim_results_raw is not None:
         raw = st.session_state.sim_results_raw
         results = raw["results"]
