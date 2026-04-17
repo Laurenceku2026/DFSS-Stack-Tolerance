@@ -22,12 +22,12 @@ st.markdown("""
     .ppm-table { border-collapse: collapse; width: 100%; margin: 0 auto; }
     .ppm-table th, .ppm-table td { border: 2px solid #000000; padding: 10px 16px; text-align: center; font-size: 1rem; }
     .ppm-table th { background-color: #e9ecef; font-weight: 600; }
-    .stButton button { background-color: #3498db; color: white; font-weight: 500; border-radius: 5px; font-size: 1.1rem; }  /* 按钮字体变大 */
+    .stButton button { background-color: #3498db; color: white; font-weight: 500; border-radius: 5px; font-size: 1.1rem; margin-top: 20px; }  /* 按钮上边距，不使用全宽 */
     .stButton button:hover { background-color: #2980b9; }
     .design-value-card { background-color: #e8f4fd; border-radius: 10px; padding: 15px; margin-top: 15px; text-align: center; border-left: 5px solid #3498db; }
     .design-value-card strong { font-size: 1.1rem; }
-    .design-value-number { font-size: 1.6rem; font-weight: 600; color: #1f3a93; margin-top: 5px; }  /* 设计值数字变大 */
-    .big-label { font-size: 1.4rem; font-weight: 500; margin-bottom: 5px; }  /* 设计变量名称标签变大 */
+    .design-value-number { font-size: 1.6rem; font-weight: 600; color: #1f3a93; margin-top: 5px; }
+    .big-label { font-size: 1.3rem; font-weight: 500; margin-bottom: 5px; }  /* 统一标签大小 */
     .param-letter { font-weight: bold; font-size: 1rem; text-align: center; background-color: #e9ecef; border-radius: 4px; padding: 6px 0; width: 40px; }
     .formula-hint { font-size: 0.9rem; color: #6c757d; margin-bottom: 5px; }
 </style>
@@ -305,7 +305,7 @@ def generate_report(raw, usl, lsl, n_sim, seed, formula, params_df, param_letter
         <tr><th>统计量</th><th>数值</th></tr>
         <tr><td>均值</td><td>{raw['mean']:.2f}</td></tr>
         <tr><td>标准差</td><td>{raw['std']:.2f}</td></tr>
-        <tr><td>最大值</th><td>{raw['max']:.2f}</td></tr>
+        <tr><td>最大值</td><td>{raw['max']:.2f}</td></tr>
         <tr><td>最小值</td><td>{raw['min']:.2f}</td></tr>
     </table>
     """
@@ -355,10 +355,9 @@ def main():
         st.session_state.lsl_str = lsl_sidebar
         seed = st.number_input("随机种子", value=42, step=1)
 
-    # ================= 参数输入表格（自定义行布局，每行左侧显示字母） =================
+    # 参数输入表格
     st.markdown('<div class="section-header">📝 参数输入</div>', unsafe_allow_html=True)
 
-    # 表头
     header_cols = st.columns([0.3, 2, 1, 1, 1, 0.3])
     header_cols[0].markdown("**字母**")
     header_cols[1].markdown("**参数名称**")
@@ -367,7 +366,6 @@ def main():
     header_cols[4].markdown("**分布**")
     header_cols[5].markdown("**删除**")
 
-    # 存储每行的临时值
     rows_data = []
     for idx, row in st.session_state.params.iterrows():
         letter = chr(ord('A') + idx)
@@ -386,7 +384,6 @@ def main():
             delete = st.button("🗑️", key=f"del_{idx}")
         rows_data.append((name, mean_val, std_val, dist_val, delete, letter))
 
-    # 处理删除和添加
     new_params = []
     for i, (name, mean_val, std_val, dist_val, delete, letter) in enumerate(rows_data):
         if not delete:
@@ -397,7 +394,7 @@ def main():
     st.session_state.params = pd.DataFrame(new_params)
     update_param_letters()
 
-    # ================= 公式定义区域 =================
+    # 公式定义区域
     st.markdown('<div class="section-header">📐 公式定义（设计值）</div>', unsafe_allow_html=True)
     output_name = st.text_input("📌 设计变量名称", value=st.session_state.output_name, key="output_name_input")
     st.session_state.output_name = output_name if output_name.strip() else "Output"
@@ -408,20 +405,19 @@ def main():
     st.session_state.formula = formula
     st.caption("支持的运算: + - * / **, 括号, 函数: sqrt, exp, log, sin, cos, tan, pi, e 等。公式中的空格会被自动优化。")
 
-    # 实时计算设计值（字体已通过CSS放大）
     design_val = compute_design_value(st.session_state.params, formula, st.session_state.param_letters)
     if design_val is not None and not np.isnan(design_val):
         st.markdown(f"""
         <div class="design-value-card">
             <strong>📌 当前设计值（基于均值）:</strong><br>
-            <span class="design-value-number">{output_name} = {design_val:.6f}</span>
+            <span class="design-value-number">{output_name} = {design_val:.2f}</span>
         </div>
         """, unsafe_allow_html=True)
     else:
         st.warning("公式无效或参数不匹配，无法计算设计值。请检查公式中的字母是否与上方对应关系一致，并确保运算正确。")
 
-    # 蒙特卡洛模拟按钮
-    if st.button("🚀 开始蒙特卡洛模拟", type="primary", use_container_width=True):
+    # 大按钮，不使用全宽，并已通过 CSS 设置上边距
+    if st.button("🚀 开始蒙特卡洛模拟", type="primary"):
         if st.session_state.params.isnull().values.any():
             st.error("参数表中存在空值，请检查！")
             return
@@ -461,7 +457,7 @@ def main():
             "formula": formula,
         }
 
-    # 显示结果
+    # 显示结果（略，与之前相同）
     if st.session_state.sim_results_raw is not None:
         raw = st.session_state.sim_results_raw
         results = raw["results"]
