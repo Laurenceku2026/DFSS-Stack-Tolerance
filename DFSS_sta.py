@@ -3,6 +3,8 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'WenQuanYi Micro Hei', 'DejaVu Sans']  # 支持中文
+plt.rcParams['axes.unicode_minus'] = False  # 解决负号显示问题
 from scipy import stats
 import math
 import re
