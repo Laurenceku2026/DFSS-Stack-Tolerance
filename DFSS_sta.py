@@ -26,7 +26,8 @@ st.markdown("""
     .stButton button:hover { background-color: #2980b9; }
     .design-value-card { background-color: #e8f4fd; border-radius: 10px; padding: 15px; margin-top: 15px; text-align: center; border-left: 5px solid #3498db; }
     .big-label { font-size: 1.2rem; font-weight: 500; margin-bottom: 5px; }
-    .formula-hint { font-size: 0.9rem; color: #6c757d; margin-top: 5px; text-align: right; }
+    .formula-hint { font-size: 0.85rem; color: #6c757d; margin-top: 5px; text-align: right; }
+    .param-table-row { margin-bottom: 5px; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -52,13 +53,12 @@ if "lsl_str" not in st.session_state:
     st.session_state.lsl_str = "30.0"
 
 def update_param_letters():
-    """为每个参数分配字母 A, B, C, ... 并存储映射"""
+    """为每个参数分配字母 A, B, C, ..."""
     letters = [chr(ord('A') + i) for i in range(len(st.session_state.params))]
     st.session_state.param_letters = {
         row["参数名称"]: letters[i] for i, row in st.session_state.params.iterrows()
     }
 
-# 初次调用
 update_param_letters()
 
 def parse_limit(s: str) -> Optional[float]:
@@ -74,28 +74,24 @@ def sync_lsl_from_main(): st.session_state.lsl_str = st.session_state.main_lsl
 def sync_usl_from_sidebar(): st.session_state.usl_str = st.session_state.usl_sidebar
 def sync_lsl_from_sidebar(): st.session_state.lsl_str = st.session_state.lsl_sidebar
 
+# 关键修改：通过回调直接修改 session_state.formula，不调用 st.rerun()，依赖 Streamlit 自动重绘
 def append_letter(letter: str):
     current = st.session_state.formula
     if current and not current.endswith((' ', '+', '-', '*', '/', '(')):
         st.session_state.formula = current + " " + letter
     else:
         st.session_state.formula = current + letter
-    st.rerun()
+    # 不需要显式 rerun，session_state 变化会触发自动重绘
 
 def replace_letters_with_names(expr: str, param_letters: Dict[str, str]) -> str:
-    """将公式中的字母替换回原始参数名，以便计算"""
-    # 构建反向映射：字母 -> 参数名
     reverse_map = {v: k for k, v in param_letters.items()}
-    # 按字母长度降序排序（都是单字母，但保险）
     for letter, name in sorted(reverse_map.items(), key=lambda x: len(x[0]), reverse=True):
         pattern = r'(?<![a-zA-Z0-9_])' + re.escape(letter) + r'(?![a-zA-Z0-9_])'
         expr = re.sub(pattern, name, expr)
     return expr
 
 def safe_eval_with_mapping(expr: str, param_names: List[str], context_values: List[float], param_letters: Dict[str, str]) -> float:
-    # 先将字母替换为参数名
     expr_with_names = replace_letters_with_names(expr, param_letters)
-    # 再执行原有映射
     temp_names = [f"__p{i}__" for i in range(len(param_names))]
     sorted_params = sorted(zip(param_names, temp_names), key=lambda x: len(x[0]), reverse=True)
     expr_temp = expr_with_names
@@ -362,67 +358,42 @@ def main():
         seed = st.number_input("随机种子", value=42, step=1)
 
     st.markdown('<div class="section-header">📝 参数输入</div>', unsafe_allow_html=True)
-    # 显示表头
-    col0, col1, col2, col3, col4 = st.columns([0.5, 2, 1, 1, 1])
-    with col0: st.markdown("**插入**")
-    with col1: st.markdown("**参数名称**")
-    with col2: st.markdown("**均值(Typ)**")
-    with col3: st.markdown("**标准差(Std)**")
-    with col4: st.markdown("**分布**")
 
-    param_names_updated = []
-    means_updated = []
-    stds_updated = []
-    dists_updated = []
-    # 生成字母列表
-    letters = [chr(ord('A') + i) for i in range(len(st.session_state.params))]
-    for idx, row in st.session_state.params.iterrows():
-        c0, c1, c2, c3, c4 = st.columns([0.5, 2, 1, 1, 1])
-        with c0:
-            letter = letters[idx]
-            if st.button(f"{letter}", key=f"insert_btn_{idx}", help=f"插入字母 {letter} 到公式"):
-                append_letter(letter)
-        with c1:
-            name = st.text_input("", value=row["参数名称"], key=f"param_name_{idx}", label_visibility="collapsed")
-        with c2:
-            mean_val = st.number_input("", value=float(row["均值(Typ)"]), step=1.0, key=f"param_mean_{idx}", label_visibility="collapsed")
-        with c3:
-            std_val = st.number_input("", value=float(row["标准差(Std)"]), step=0.01, format="%.4f", key=f"param_std_{idx}", label_visibility="collapsed")
-        with c4:
-            dist_val = st.selectbox("", ["正态分布"], index=0, key=f"param_dist_{idx}", label_visibility="collapsed")
-        param_names_updated.append(name)
-        means_updated.append(mean_val)
-        stds_updated.append(std_val)
-        dists_updated.append(dist_val)
+    # 可编辑参数表格：使用 st.data_editor 实现动态增删行
+    edited_df = st.data_editor(st.session_state.params, num_rows="dynamic", use_container_width=True)
+    # 检查是否有行被删除或添加，更新 session_state
+    if not edited_df.equals(st.session_state.params):
+        st.session_state.params = edited_df
+        update_param_letters()  # 重新生成字母映射
 
-    # 更新参数表
-    new_df = pd.DataFrame({
-        "参数名称": param_names_updated,
-        "均值(Typ)": means_updated,
-        "标准差(Std)": stds_updated,
-        "分布": dists_updated
-    })
-    st.session_state.params = new_df
-    # 更新字母映射（参数名称可能改变，重新生成）
-    update_param_letters()
-    # 重新获取字母列表（可能数量变化）
+    # 显示字母按钮（紧凑布局，放在表格右侧但更紧凑）
+    st.markdown("**快速插入字母到公式：**")
+    # 获取当前所有字母（按顺序）
     letters = [chr(ord('A') + i) for i in range(len(st.session_state.params))]
+    # 用 columns 紧凑排列按钮
+    if letters:
+        cols = st.columns(min(6, len(letters)))
+        for i, letter in enumerate(letters):
+            with cols[i % len(cols)]:
+                st.button(f"📎 {letter}", key=f"letter_btn_{letter}", on_click=append_letter, args=(letter,))
+    else:
+        st.info("暂无参数，请添加参数行。")
 
     st.markdown('<div class="section-header">📐 公式定义（设计值）</div>', unsafe_allow_html=True)
     col_label, col_hint = st.columns([1, 1])
     with col_label:
         st.markdown('<span class="big-label">📌 设计变量名称</span>', unsafe_allow_html=True)
     with col_hint:
-        st.markdown('<div class="formula-hint">💡 点击表格左侧的字母按钮（A, B, C...），插入到公式中</div>', unsafe_allow_html=True)
+        st.markdown('<div class="formula-hint">💡 点击上方字母按钮插入字母到公式；也可直接使用字母（如 A, B, C...）或原始参数名构成公式</div>', unsafe_allow_html=True)
     output_name = st.text_input("", value=st.session_state.output_name, key="output_name_input", label_visibility="collapsed")
     st.session_state.output_name = output_name if output_name.strip() else "Output"
 
     st.markdown('<span class="big-label">📝 计算公式</span>', unsafe_allow_html=True)
     formula = st.text_area("", value=st.session_state.formula, height=100, key="formula_input", label_visibility="collapsed")
     st.session_state.formula = formula
-    st.caption("支持的运算: + - * / **, 括号, 函数: sqrt, exp, log, sin, cos, tan, pi, e 等<br>可使用字母（A, B, C...）或原始参数名，系统会自动识别。", unsafe_allow_html=True)
+    st.caption("支持的运算: + - * / **, 括号, 函数: sqrt, exp, log, sin, cos, tan, pi, e 等")
 
-    # 计算设计值
+    # 实时计算设计值
     design_val = compute_design_value(st.session_state.params, formula, st.session_state.param_letters)
     if design_val is not None and not np.isnan(design_val):
         st.markdown(f"""
@@ -511,7 +482,8 @@ def main():
                 def fmt(v): return f"{v:.2f}" if v is not None else "-"
                 st.markdown(f"""
                 <table class="ppm-table"><tr><th>CPK</th><th>Failure All</th><th>Failure Up</th><th>Failure Dn</th></tr>
-                <tr><td>{fmt(cpk)}</td><td>{fmt(failures_all)}</td><td>{fmt(failures_up)}</td><td>{fmt(failures_dn)}</td></tr></table>
+                <tr><td>{fmt(cpk)}</td><td>{fmt(failures_all)}</td><td>{fmt(failures_up)}</td><td>{fmt(failures_dn)}</td></tr>
+                </table>
                 """, unsafe_allow_html=True)
             else:
                 st.info("未提供任何规格限，无法计算CPK和PPM。")
