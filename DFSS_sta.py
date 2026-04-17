@@ -12,7 +12,7 @@ st.set_page_config(page_title="Para_Variation - 蒙特卡洛模拟", layout="wid
 st.title("📊 Para_Variation - 基于蒙特卡洛模拟分析")
 st.markdown("根据输入参数的分布进行随机抽样，计算用户定义的公式结果，分析输出分布及各参数贡献度。")
 
-# 初始化session state
+# 初始化 session state
 if "params" not in st.session_state:
     st.session_state.params = pd.DataFrame({
         "参数名称": ["Cell Cap", "Suction P", "Brush P", "Other(Pump+display)", "V"],
@@ -26,6 +26,17 @@ if "sim_results" not in st.session_state:
 
 if "formula" not in st.session_state:
     st.session_state.formula = "Cell Cap * V * 7 / 1000 * 60 / (Suction P + Brush P + Other(Pump+display))"
+
+if "output_name" not in st.session_state:
+    st.session_state.output_name = "Runtime"
+
+# 回调函数：追加参数名到公式
+def append_param(param_name: str):
+    current = st.session_state.formula
+    if current and not current.endswith((' ', '+')):
+        st.session_state.formula = current + " " + param_name
+    else:
+        st.session_state.formula = current + param_name
 
 # 安全计算公式（支持任意参数名）
 def safe_eval_with_mapping(expr: str, param_names: List[str], context_values: List[float]) -> float:
@@ -143,8 +154,8 @@ def sensitivity_analysis(params_df: pd.DataFrame,
     df_contrib["贡献百分比"] = df_contrib["贡献百分比"].apply(lambda x: f"{x:.2%}")
     return df_contrib, contributions, param_names
 
-# 绘图
-def plot_histogram(results, bin_centers, hist_counts, x_pdf, pdf_theory, usl, lsl):
+# 绘图函数
+def plot_histogram(results, bin_centers, hist_counts, x_pdf, pdf_theory, usl, lsl, output_name):
     fig, ax = plt.subplots(figsize=(10, 6))
     ax.bar(bin_centers, hist_counts, width=(bin_centers[1]-bin_centers[0])*0.9,
            alpha=0.6, label="模拟频率", color="steelblue")
@@ -153,13 +164,13 @@ def plot_histogram(results, bin_centers, hist_counts, x_pdf, pdf_theory, usl, ls
     ax.plot(x_pdf, pdf_theory * area, 'r-', linewidth=2, label="理论正态分布")
     ax.axvline(usl, color='green', linestyle='--', label=f"USL = {usl}")
     ax.axvline(lsl, color='orange', linestyle='--', label=f"LSL = {lsl}")
-    ax.set_xlabel("输出值")
+    ax.set_xlabel(output_name)
     ax.set_ylabel("频次")
-    ax.set_title("输出分布直方图")
+    ax.set_title(f"{output_name} 分布直方图")
     ax.legend()
     return fig
 
-def plot_contribution(contributions, param_names):
+def plot_contribution(contributions, param_names, output_name):
     fig, ax = plt.subplots(figsize=(8, 6))
     non_zero = [(p, c) for p, c in zip(param_names, contributions) if c > 0]
     if not non_zero:
@@ -168,7 +179,7 @@ def plot_contribution(contributions, param_names):
     names, vals = zip(*non_zero)
     ax.pie(vals, labels=names, autopct='%1.1f%%', startangle=90)
     ax.axis('equal')
-    ax.set_title("各参数对输出方差的贡献百分比")
+    ax.set_title(f"各参数对 {output_name} 方差的贡献百分比")
     return fig
 
 # 主程序
@@ -185,16 +196,21 @@ def main():
 
     st.markdown("---")
     st.subheader("📐 公式定义")
+    # 输出名称输入
+    output_name = st.text_input("输出变量名称", value=st.session_state.output_name, key="output_name_input")
+    st.session_state.output_name = output_name if output_name.strip() else "Output"
+
     st.caption("使用与表格中**完全一致**的参数名称（支持中文、空格、特殊字符），点击下方按钮可插入参数。")
-    # 显示参数按钮
     param_names = edited_df["参数名称"].astype(str).tolist()
-    cols = st.columns(min(6, len(param_names)))
-    for idx, name in enumerate(param_names):
-        with cols[idx % len(cols)]:
-            if st.button(f"➕ {name}", key=f"btn_{name}"):
-                # 将参数名追加到公式末尾（简化实现，无法控制光标位置）
-                st.session_state.formula += name
-    formula = st.text_area("输出公式", value=st.session_state.formula, height=100, key="formula_input")
+    # 创建按钮列，每行最多5个
+    cols_per_row = 5
+    for i in range(0, len(param_names), cols_per_row):
+        cols = st.columns(min(cols_per_row, len(param_names) - i))
+        for idx, name in enumerate(param_names[i:i+cols_per_row]):
+            with cols[idx]:
+                st.button(f"➕ {name}", key=f"btn_{name}", on_click=append_param, args=(name,))
+    # 公式输入框，绑定 session_state.formula
+    formula = st.text_area("计算公式", value=st.session_state.formula, height=100, key="formula_input")
     st.session_state.formula = formula
     st.caption("支持的运算: + - * / **, 括号, 函数: sqrt, exp, log, sin, cos, tan, pi, e 等")
 
@@ -204,6 +220,9 @@ def main():
             return
         if len(set(param_names)) != len(param_names):
             st.error("参数名称必须唯一！")
+            return
+        if not formula.strip():
+            st.error("公式不能为空！")
             return
 
         with st.spinner("正在进行蒙特卡洛模拟..."):
@@ -220,7 +239,8 @@ def main():
             "contributions": contributions,
             "param_names": param_names,
             "formula": formula,
-            "params_df": edited_df
+            "params_df": edited_df,
+            "output_name": output_name
         }
 
     if st.session_state.sim_results:
@@ -228,11 +248,12 @@ def main():
         df_contrib = st.session_state.sim_results["df_contrib"]
         contributions = st.session_state.sim_results["contributions"]
         param_names = st.session_state.sim_results["param_names"]
+        output_name = st.session_state.sim_results["output_name"]
 
-        st.header("📈 模拟结果")
+        st.header(f"📈 模拟结果: {output_name}")
         col1, col2, col3 = st.columns(3)
-        col1.metric("输出均值", f"{res['mean']:.4f}")
-        col1.metric("输出标准差", f"{res['std']:.4f}")
+        col1.metric(f"{output_name} 均值", f"{res['mean']:.4f}")
+        col1.metric(f"{output_name} 标准差", f"{res['std']:.4f}")
         col2.metric("最大值", f"{res['max']:.4f}")
         col2.metric("最小值", f"{res['min']:.4f}")
         col3.metric("Cpk", f"{res['cpk']:.4f}")
@@ -240,13 +261,13 @@ def main():
 
         st.subheader("分布直方图")
         fig_hist = plot_histogram(res['results'], res['bin_centers'], res['hist_counts'],
-                                  res['x_pdf'], res['pdf_theory'], usl, lsl)
+                                  res['x_pdf'], res['pdf_theory'], usl, lsl, output_name)
         st.pyplot(fig_hist)
 
         st.subheader("📊 各参数对输出方差的贡献百分比")
         st.dataframe(df_contrib, use_container_width=True)
 
-        fig_pie = plot_contribution(contributions, param_names)
+        fig_pie = plot_contribution(contributions, param_names, output_name)
         st.pyplot(fig_pie)
 
         with st.expander("查看模拟数据预览"):
@@ -254,7 +275,7 @@ def main():
             stds = edited_df["标准差(Std)"].values.astype(float)
             samples = np.random.normal(loc=means, scale=stds, size=(min(100, n_sim), len(param_names)))
             df_samples = pd.DataFrame(samples, columns=param_names)
-            df_samples["计算结果"] = res['results'][:100] if len(res['results']) >= 100 else np.pad(res['results'], (0,100-len(res['results'])), constant_values=np.nan)
+            df_samples[output_name] = res['results'][:100] if len(res['results']) >= 100 else np.pad(res['results'], (0,100-len(res['results'])), constant_values=np.nan)
             st.dataframe(df_samples, use_container_width=True)
 
         st.success("模拟完成！")
