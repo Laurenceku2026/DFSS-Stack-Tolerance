@@ -13,7 +13,7 @@ from typing import List, Dict, Any, Tuple, Optional
 # 页面配置
 st.set_page_config(page_title="Para_Variation - 蒙特卡洛模拟", layout="wide")
 
-# 自定义 CSS 优化全局样式
+# 自定义 CSS
 st.markdown("""
 <style>
     .main-title {
@@ -79,6 +79,15 @@ st.markdown("""
         text-align: center;
         border-left: 5px solid #3498db;
     }
+    .param-button-row {
+        margin: 10px 0;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+    }
+    .param-button-row button {
+        margin: 0;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -122,8 +131,8 @@ def sync_usl_from_sidebar():
 def sync_lsl_from_sidebar():
     st.session_state.lsl_str = st.session_state.lsl_sidebar
 
-# 注意：append_param 函数定义必须放在调用之前，且使用 st.session_state 更新公式
 def append_param(param_name: str):
+    """将参数名追加到公式中"""
     current = st.session_state.formula
     if current and not current.endswith((' ', '+')):
         st.session_state.formula = current + " " + param_name
@@ -452,32 +461,39 @@ def main():
         st.session_state.lsl_str = lsl_sidebar
         seed = st.number_input("随机种子", value=42, step=1)
 
+    # 参数输入表格
     st.markdown('<div class="section-header">📝 参数输入</div>', unsafe_allow_html=True)
     edited_df = st.data_editor(st.session_state.params, num_rows="dynamic", use_container_width=True)
 
-    # 公式定义区域（放在参数表格下方）
-    st.markdown('<div class="section-header">📐 公式定义（设计值）</div>', unsafe_allow_html=True)
-    st.caption("使用与表格中**完全一致**的参数名称，点击下方按钮可插入参数到公式。")
-
     # 获取当前参数名称列表
     param_names = edited_df["参数名称"].astype(str).tolist()
-    # 生成参数按钮，使用索引+参数名确保唯一性
-    cols_per_row = 5
+
+    # 公式定义区域
+    st.markdown('<div class="section-header">📐 公式定义（设计值）</div>', unsafe_allow_html=True)
+    st.caption("点击下方参数按钮插入到公式中（参数名称需与表格完全一致）")
+
+    # 生成参数按钮行 - 使用 columns 确保每个按钮独立且 key 唯一
+    # 每行最多显示 6 个按钮
+    cols_per_row = 6
     for i in range(0, len(param_names), cols_per_row):
         cols = st.columns(min(cols_per_row, len(param_names) - i))
         for idx, name in enumerate(param_names[i:i+cols_per_row]):
-            # 使用索引组合来生成唯一且稳定的 key
-            unique_key = f"btn_{i}_{idx}_{name.replace(' ', '_')}"
-            st.button(f"➕ {name}", key=unique_key, on_click=append_param, args=(name,))
+            # 使用唯一 key，包含参数名和索引，避免重复
+            btn_key = f"insert_param_{i+idx}_{name.replace(' ', '_')}"
+            if cols[idx].button(f"📌 {name}", key=btn_key):
+                append_param(name)
+                st.rerun()  # 立即刷新公式框
 
+    # 输出变量名称
     output_name = st.text_input("输出变量名称", value=st.session_state.output_name, key="output_name_input")
     st.session_state.output_name = output_name if output_name.strip() else "Output"
 
+    # 公式输入框
     formula = st.text_area("计算公式", value=st.session_state.formula, height=100, key="formula_input")
     st.session_state.formula = formula
     st.caption("支持的运算: + - * / **, 括号, 函数: sqrt, exp, log, sin, cos, tan, pi, e 等")
 
-    # 计算并显示当前设计值
+    # 实时计算设计值
     design_val = compute_design_value(edited_df, formula)
     if design_val is not None and not np.isnan(design_val):
         st.markdown(f"""
@@ -488,6 +504,7 @@ def main():
     else:
         st.warning("公式无效或参数不匹配，无法计算设计值。")
 
+    # 蒙特卡洛模拟按钮
     if st.button("🚀 开始蒙特卡洛模拟", type="primary", use_container_width=True):
         if edited_df.isnull().values.any():
             st.error("参数表中存在空值，请检查！")
@@ -527,7 +544,7 @@ def main():
             "formula": formula,
         }
 
-    # 显示结果（如果已有模拟结果）
+    # 显示结果
     if st.session_state.sim_results_raw is not None:
         raw = st.session_state.sim_results_raw
         results = raw["results"]
