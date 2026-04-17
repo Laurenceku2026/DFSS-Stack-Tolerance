@@ -439,7 +439,7 @@ def generate_sample(dist: str, mean: float, std: float, dist_params: Dict, size:
     else:
         return np.random.normal(mean, std, size)
 
-def run_monte_carlo(params_df: pd.DataFrame, formula: str, n_sim: int, param_letters: Dict[str, str], seed: int = 42) -> Dict[str, Any]:
+def run_monte_carlo(params_df: pd.DataFrame, formula: str, n_sim: int, param_letters: Dict[str, str], seed: int = 38) -> Dict[str, Any]:
     np.random.seed(seed)
     n_params = len(params_df)
     param_names = params_df["参数名称"].astype(str).tolist()
@@ -488,7 +488,7 @@ def run_monte_carlo(params_df: pd.DataFrame, formula: str, n_sim: int, param_let
         "param_names": param_names,
     }
 
-def sensitivity_analysis(params_df: pd.DataFrame, formula: str, n_sim: int, param_letters: Dict[str, str], seed: int = 42) -> Tuple[pd.DataFrame, List[float], List[str]]:
+def sensitivity_analysis(params_df: pd.DataFrame, formula: str, n_sim: int, param_letters: Dict[str, str], seed: int = 38) -> Tuple[pd.DataFrame, List[float], List[str]]:
     np.random.seed(seed)
     n_params = len(params_df)
     param_names = params_df["参数名称"].astype(str).tolist()
@@ -752,7 +752,7 @@ def main():
         lsl_sidebar = st.text_input(t("lsl"), value=st.session_state.lsl_str, key="lsl_sidebar", on_change=sync_lsl_from_sidebar)
         st.session_state.usl_str = usl_sidebar
         st.session_state.lsl_str = lsl_sidebar
-        seed = st.number_input(t("random_seed"), value=42, step=1)
+        seed = st.number_input(t("random_seed"), value=38, step=1)
 
         st.markdown("---")
         st.markdown(f"### {t('about_system')}")
