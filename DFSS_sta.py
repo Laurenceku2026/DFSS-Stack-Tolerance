@@ -37,6 +37,12 @@ if "usl" not in st.session_state:
 if "lsl" not in st.session_state:
     st.session_state.lsl = 30.0
 
+# 回调函数：更新规格限（用于主界面输入框）
+def update_usl():
+    st.session_state.usl = st.session_state.main_usl
+def update_lsl():
+    st.session_state.lsl = st.session_state.main_lsl
+
 # 回调函数：追加参数名到公式
 def append_param(param_name: str):
     current = st.session_state.formula
@@ -102,7 +108,7 @@ def run_monte_carlo(params_df: pd.DataFrame,
 
     return {
         "results": results,
-        "samples": samples,  # 保存所有参数样本，用于预览
+        "samples": samples,
         "mean": mean_out,
         "std": std_out,
         "max": max_out,
@@ -226,23 +232,17 @@ def generate_report(raw, usl, lsl, n_sim, seed, formula, params_df):
     barh_b64 = base64.b64encode(buf_barh.getvalue()).decode()
     plt.close(fig_barh)
 
-    # 贡献百分比数据表
     df_contrib = raw["df_contrib"].copy()
-    df_contrib["贡献百分比"] = df_contrib["贡献百分比"].apply(lambda x: f"{float(x.strip('%'))/100:.6%}")  # 保持高精度
+    df_contrib["贡献百分比"] = df_contrib["贡献百分比"].apply(lambda x: f"{float(x.strip('%'))/100:.6%}")
 
-    # 前100行模拟数据预览
     samples_df = pd.DataFrame(raw["samples"], columns=param_names)
     samples_df[output_name] = results
     preview_df = samples_df.head(100)
 
-    # 参数表 HTML
     params_html = params_df.to_html(index=False, classes="dataframe", border=1, justify="center")
-    # 贡献表 HTML
     contrib_html = df_contrib.to_html(index=False, classes="dataframe", border=1, justify="center")
-    # 预览表 HTML
     preview_html = preview_df.to_html(index=False, classes="dataframe", border=1, justify="center", float_format="%.6f")
 
-    # 自定义 CSS 样式：黑色边框、居中、专业字体
     css = """
     <style>
         body { font-family: 'Segoe UI', Arial, sans-serif; margin: 20px; }
@@ -271,7 +271,6 @@ def generate_report(raw, usl, lsl, n_sim, seed, formula, params_df):
     </style>
     """
 
-    # 统计表
     stats_html = f"""
     <table class="dataframe stats-table">
         <tr><th>统计量</th><th>数值</th></tr>
@@ -286,7 +285,6 @@ def generate_report(raw, usl, lsl, n_sim, seed, formula, params_df):
     </table>
     """
 
-    # 组装 HTML
     report_html = f"""
     <!DOCTYPE html>
     <html>
@@ -342,10 +340,9 @@ def generate_report(raw, usl, lsl, n_sim, seed, formula, params_df):
 def main():
     st.sidebar.header("⚙️ 模拟设置")
     n_sim = st.sidebar.number_input("模拟次数 (Trail number)", min_value=100, max_value=100000, value=1000, step=100)
-    usl = st.sidebar.number_input("规格上限 (Upper L)", value=st.session_state.usl, step=1.0, key="usl_input")
-    lsl = st.sidebar.number_input("规格下限 (Lower L)", value=st.session_state.lsl, step=1.0, key="lsl_input")
-    st.session_state.usl = usl
-    st.session_state.lsl = lsl
+    # 侧边栏的规格限输入，绑定到 session_state，并设置 key
+    st.sidebar.number_input("规格上限 (Upper L)", value=st.session_state.usl, step=0.1, format="%.4f", key="usl_sidebar", on_change=lambda: setattr(st.session_state, 'usl', st.session_state.usl_sidebar))
+    st.sidebar.number_input("规格下限 (Lower L)", value=st.session_state.lsl, step=0.1, format="%.4f", key="lsl_sidebar", on_change=lambda: setattr(st.session_state, 'lsl', st.session_state.lsl_sidebar))
     seed = st.sidebar.number_input("随机种子", value=42, step=1)
 
     st.markdown("---")
@@ -413,6 +410,9 @@ def main():
         raw = st.session_state.sim_results_raw
         results = raw["results"]
         output_name = raw["output_name"]
+        # 使用当前 session_state 中的 usl/lsl 计算（已与侧边栏和主界面同步）
+        usl = st.session_state.usl
+        lsl = st.session_state.lsl
         cpk, failures_all, failures_up, failures_dn = compute_cpk_ppm(results, usl, lsl)
 
         st.header(f"📈 模拟结果: {output_name}")
@@ -422,36 +422,43 @@ def main():
         col2.metric("最大值", f"{raw['max']:.8f}")
         col2.metric("最小值", f"{raw['min']:.8f}")
 
-        # Failure ppm level 表格（HTML 黑色边框、居中）
+        # Failure ppm level 区域：添加提示文字、左侧输入框、右侧表格
         st.subheader("Failure ppm level")
-        ppm_html = f"""
-        <style>
-        .ppm-table {{
-            border-collapse: collapse;
-            width: auto;
-            margin: 0 auto;
-        }}
-        .ppm-table th, .ppm-table td {{
-            border: 2px solid black;
-            padding: 8px 16px;
-            text-align: center;
-            font-weight: normal;
-        }}
-        .ppm-table th {{
-            background-color: #f0f0f0;
-        }}
-        </style>
-        <table class="ppm-table">
-            <tr><th>CPK</th><th>Failure All</th><th>Failure Up</th><th>Failure Dn</th></tr>
-            <tr>
-                <td>{cpk:.6f}</td>
-                <td>{failures_all:.6f}</td>
-                <td>{failures_up:.6f}</td>
-                <td>{failures_dn:.6f}</td>
-            </tr>
-        </table>
-        """
-        st.markdown(ppm_html, unsafe_allow_html=True)
+        st.caption("💡 可调节上下限以实时观察PPM水平的变化")
+        col_left, col_right = st.columns([1, 2])
+        with col_left:
+            # 主界面规格限输入框，与 session_state 双向同步
+            st.number_input("规格上限 (USL)", value=st.session_state.usl, step=0.1, format="%.4f", key="main_usl", on_change=update_usl)
+            st.number_input("规格下限 (LSL)", value=st.session_state.lsl, step=0.1, format="%.4f", key="main_lsl", on_change=update_lsl)
+        with col_right:
+            ppm_html = f"""
+            <style>
+            .ppm-table {{
+                border-collapse: collapse;
+                width: auto;
+                margin: 0 auto;
+            }}
+            .ppm-table th, .ppm-table td {{
+                border: 2px solid black;
+                padding: 8px 16px;
+                text-align: center;
+                font-weight: normal;
+            }}
+            .ppm-table th {{
+                background-color: #f0f0f0;
+            }}
+            </style>
+            <table class="ppm-table">
+                <tr><th>CPK</th><th>Failure All</th><th>Failure Up</th><th>Failure Dn</th></tr>
+                <tr>
+                    <td>{cpk:.6f}</td>
+                    <td>{failures_all:.6f}</td>
+                    <td>{failures_up:.6f}</td>
+                    <td>{failures_dn:.6f}</td>
+                </tr>
+            </table>
+            """
+            st.markdown(ppm_html, unsafe_allow_html=True)
 
         # 分布直方图
         st.subheader("分布直方图")
@@ -474,7 +481,6 @@ def main():
             samples_df = pd.DataFrame(raw["samples"], columns=param_names)
             samples_df[output_name] = results
             st.dataframe(samples_df, use_container_width=True, height=400)
-            # 提供 CSV 下载
             csv = samples_df.to_csv(index=False)
             st.download_button(
                 label="📥 下载模拟数据 (CSV)",
