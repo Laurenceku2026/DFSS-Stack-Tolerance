@@ -27,6 +27,8 @@ st.markdown("""
     .design-value-card { background-color: #e8f4fd; border-radius: 10px; padding: 15px; margin-top: 15px; text-align: center; border-left: 5px solid #3498db; }
     .big-label { font-size: 1.2rem; font-weight: 500; margin-bottom: 5px; }
     .formula-hint { font-size: 0.9rem; color: #6c757d; margin-top: 5px; text-align: right; }
+    .param-row { margin-bottom: 8px; display: flex; align-items: center; gap: 10px; }
+    .param-letter { font-weight: bold; font-size: 1rem; text-align: center; background-color: #e9ecef; border-radius: 4px; padding: 6px 0; width: 40px; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -50,13 +52,10 @@ if "lsl_str" not in st.session_state:
     st.session_state.lsl_str = "30.0"
 
 def update_param_letters():
-    """为每个参数分配字母 A, B, C, ... 并存储映射"""
     letters = [chr(ord('A') + i) for i in range(len(st.session_state.params))]
     st.session_state.param_letters = {
         row["参数名称"]: letters[i] for i, row in st.session_state.params.iterrows()
     }
-
-# 初次调用
 update_param_letters()
 
 def parse_limit(s: str) -> Optional[float]:
@@ -73,7 +72,6 @@ def sync_usl_from_sidebar(): st.session_state.usl_str = st.session_state.usl_sid
 def sync_lsl_from_sidebar(): st.session_state.lsl_str = st.session_state.lsl_sidebar
 
 def clean_formula(formula: str) -> str:
-    """自动清理公式：去除多余空格，确保运算符周围有空格，但不过度"""
     formula = formula.strip()
     formula = re.sub(r'\s+', ' ', formula)
     formula = re.sub(r'(?<=[0-9a-zA-Z)])\s*([+\-*/])\s*(?=[0-9a-zA-Z(])', r' \1 ', formula)
@@ -307,14 +305,14 @@ def generate_report(raw, usl, lsl, n_sim, seed, formula, params_df, param_letter
         <tr><td>均值</td><td>{raw['mean']:.2f}</td></tr>
         <tr><td>标准差</td><td>{raw['std']:.2f}</td></tr>
         <tr><td>最大值</td><td>{raw['max']:.2f}</td></tr>
-        <tr><td>最小值</td><td>{raw['min']:.2f}</td>
+        <tr><td>最小值</td><td>{raw['min']:.2f}</td></tr>
     </table>
     """
     if cpk is not None:
         stats_html += f"""
         <table class="dataframe stats-table">
             <tr><th>Cpk</th><th>Failure All (ppm)</th><th>Failure Up (ppm)</th><th>Failure Dn (ppm)</th></tr>
-            <tr><td>{fmt(cpk)}</td><td>{fmt(failures_all)}</td><td>{fmt(failures_up)}</td><td>{fmt(failures_dn)}</td>
+            <tr><td>{fmt(cpk)}</td><td>{fmt(failures_all)}</td><td>{fmt(failures_up)}</td><td>{fmt(failures_dn)}</td></tr>
         </table>
         """
     report_html = f"""
@@ -356,48 +354,65 @@ def main():
         st.session_state.lsl_str = lsl_sidebar
         seed = st.number_input("随机种子", value=42, step=1)
 
-    # ================= 参数输入表格（可动态增删行） =================
+    # ================= 参数输入表格（自定义行布局，每行左侧显示字母） =================
     st.markdown('<div class="section-header">📝 参数输入</div>', unsafe_allow_html=True)
 
-    # 使用 data_editor 实现可编辑、可增删行
-    edited_df = st.data_editor(
-        st.session_state.params,
-        num_rows="dynamic",
-        use_container_width=True,
-        column_config={
-            "参数名称": st.column_config.TextColumn("参数名称", required=True),
-            "均值(Typ)": st.column_config.NumberColumn("均值(Typ)", format="%.2f"),
-            "标准差(Std)": st.column_config.NumberColumn("标准差(Std)", format="%.4f"),
-            "分布": st.column_config.SelectboxColumn("分布", options=["正态分布"], default="正态分布"),
-        },
-        key="params_editor"
-    )
-    # 更新 session_state 中的参数表
-    st.session_state.params = edited_df
-    # 更新字母映射（因为行数可能变化）
-    update_param_letters()
+    # 表头
+    header_cols = st.columns([0.3, 2, 1, 1, 1, 0.3])
+    header_cols[0].markdown("**字母**")
+    header_cols[1].markdown("**参数名称**")
+    header_cols[2].markdown("**均值(Typ)**")
+    header_cols[3].markdown("**标准差(Std)**")
+    header_cols[4].markdown("**分布**")
+    header_cols[5].markdown("**删除**")
 
-    # 在表格下方显示字母与参数的对应关系（紧贴表格）
-    st.markdown("**字母对应关系**（可直接在公式中使用）：")
-    letters_display = []
+    # 存储每行的临时值
+    rows_data = []
     for idx, row in st.session_state.params.iterrows():
         letter = chr(ord('A') + idx)
-        letters_display.append(f"**{letter}** = {row['参数名称']}")
-    st.markdown(" " + " ".join(letters_display), unsafe_allow_html=True)
+        cols = st.columns([0.3, 2, 1, 1, 1, 0.3])
+        with cols[0]:
+            st.markdown(f'<div class="param-letter">{letter}</div>', unsafe_allow_html=True)
+        with cols[1]:
+            name = st.text_input("", value=row["参数名称"], key=f"param_name_{idx}", label_visibility="collapsed")
+        with cols[2]:
+            mean_val = st.number_input("", value=float(row["均值(Typ)"]), step=1.0, key=f"param_mean_{idx}", label_visibility="collapsed")
+        with cols[3]:
+            std_val = st.number_input("", value=float(row["标准差(Std)"]), step=0.01, format="%.4f", key=f"param_std_{idx}", label_visibility="collapsed")
+        with cols[4]:
+            dist_val = st.selectbox("", ["正态分布"], index=0, key=f"param_dist_{idx}", label_visibility="collapsed")
+        with cols[5]:
+            delete = st.button("🗑️", key=f"del_{idx}")
+        rows_data.append((name, mean_val, std_val, dist_val, delete, letter))
+
+    # 处理删除和添加
+    # 先收集未被删除的行
+    new_params = []
+    for i, (name, mean_val, std_val, dist_val, delete, letter) in enumerate(rows_data):
+        if not delete:
+            new_params.append({"参数名称": name, "均值(Typ)": mean_val, "标准差(Std)": std_val, "分布": dist_val})
+    # 添加新行按钮
+    if st.button("➕ 添加参数行", use_container_width=True):
+        new_params.append({"参数名称": "新参数", "均值(Typ)": 0.0, "标准差(Std)": 0.0, "分布": "正态分布"})
+
+    # 更新 DataFrame
+    st.session_state.params = pd.DataFrame(new_params)
+    # 更新字母映射
+    update_param_letters()
 
     # ================= 公式定义区域 =================
     st.markdown('<div class="section-header">📐 公式定义（设计值）</div>', unsafe_allow_html=True)
-    col_label, col_hint = st.columns([1, 1])
-    with col_label:
-        st.markdown('<span class="big-label">📌 设计变量名称</span>', unsafe_allow_html=True)
-    with col_hint:
-        st.markdown('<div class="formula-hint">💡 可直接在公式中使用字母（A, B, C...）代表对应参数，系统将自动识别。<br>例如：A*E*7/1000*60/(B+C+D)</div>', unsafe_allow_html=True)
-    output_name = st.text_input("", value=st.session_state.output_name, key="output_name_input", label_visibility="collapsed")
+    output_name = st.text_input("📌 设计变量名称", value=st.session_state.output_name, key="output_name_input")
     st.session_state.output_name = output_name if output_name.strip() else "Output"
 
-    st.markdown('<span class="big-label">📝 计算公式</span>', unsafe_allow_html=True)
-    formula = st.text_area("", value=st.session_state.formula, height=100, key="formula_input", label_visibility="collapsed")
-    st.session_state.formula = formula
+    # 计算公式区域，将提示放在右侧
+    col_formula, col_hint = st.columns([2, 1])
+    with col_formula:
+        st.markdown('<span class="big-label">📝 计算公式</span>', unsafe_allow_html=True)
+        formula = st.text_area("", value=st.session_state.formula, height=100, key="formula_input", label_visibility="collapsed")
+        st.session_state.formula = formula
+    with col_hint:
+        st.markdown('<div class="formula-hint">💡 可直接在公式中使用字母（A, B, C...）代表对应参数，系统将自动识别。<br>例如：A*E*7/1000*60/(B+C+D)</div>', unsafe_allow_html=True)
     st.caption("支持的运算: + - * / **, 括号, 函数: sqrt, exp, log, sin, cos, tan, pi, e 等。公式中的空格会被自动优化。")
 
     # 实时计算设计值
@@ -492,7 +507,7 @@ def main():
                 st.markdown(f"""
                 <table class="ppm-table">
                     <tr><th>CPK</th><th>Failure All</th><th>Failure Up</th><th>Failure Dn</th></tr>
-                    <tr><td>{fmt(cpk)}</td><td>{fmt(failures_all)}</td><td>{fmt(failures_up)}</td><td>{fmt(failures_dn)}</td>
+                    <tr><td>{fmt(cpk)}</td><td>{fmt(failures_all)}</td><td>{fmt(failures_up)}</td><td>{fmt(failures_dn)}</td></tr>
                 </table>
                 """, unsafe_allow_html=True)
             else:
