@@ -247,7 +247,7 @@ if "lang" not in st.session_state:
 def t(key):
     return TEXTS[st.session_state.lang].get(key, key)
 
-# 自定义 CSS（黑色字体，红色主按钮，蓝色辅助按钮，语言按钮红底白字）
+# 自定义 CSS
 st.markdown("""
 <style>
     /* 全局字体颜色黑色 */
@@ -289,11 +289,11 @@ st.markdown("""
     }
     
     /* 语言切换按钮（中文/English）红底白字，覆盖辅助按钮样式 */
-    button[key="lang_zh"], button[key="lang_en"] {
+    button[id="lang_zh"], button[id="lang_en"] {
         background-color: #dc3545 !important;
         color: white !important;
     }
-    button[key="lang_zh"]:hover, button[key="lang_en"]:hover {
+    button[id="lang_zh"]:hover, button[id="lang_en"]:hover {
         background-color: #c82333 !important;
     }
     
@@ -306,7 +306,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# 语言切换按钮（横向排列，红底白字样式已通过 CSS 实现）
+# 语言切换按钮（横向排列，红底白字样式已通过 CSS 中的 id 选择器实现）
 col_lang1, col_lang2, col_lang3 = st.columns([0.7, 0.15, 0.15])
 with col_lang2:
     if st.button("中文", key="lang_zh", use_container_width=True):
@@ -317,6 +317,7 @@ with col_lang3:
         st.session_state.lang = "en"
         st.rerun()
 
+# 以下为原有代码，保持不变
 # 初始化 session state
 if "params" not in st.session_state:
     st.session_state.params = pd.DataFrame({
