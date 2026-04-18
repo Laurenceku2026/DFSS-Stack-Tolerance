@@ -247,7 +247,7 @@ if "lang" not in st.session_state:
 def t(key):
     return TEXTS[st.session_state.lang].get(key, key)
 
-# 自定义 CSS（黑色字体，红色主按钮，蓝色辅助按钮）
+# 自定义 CSS（黑色字体，红色主按钮，蓝色辅助按钮，语言按钮红底白字）
 st.markdown("""
 <style>
     /* 全局字体颜色黑色 */
@@ -277,7 +277,7 @@ st.markdown("""
         background-color: #c82333 !important;
     }
     
-    /* 辅助按钮（添加参数行、删除、语言按钮）浅蓝色 */
+    /* 辅助按钮（添加参数行、删除）浅蓝色 */
     .stButton > button:not([data-testid="baseButton-primary"]) {
         background-color: #3498db !important;
         color: white !important;
@@ -286,6 +286,15 @@ st.markdown("""
     }
     .stButton > button:not([data-testid="baseButton-primary"]):hover {
         background-color: #2980b9 !important;
+    }
+    
+    /* 语言切换按钮（中文/English）红底白字，覆盖辅助按钮样式 */
+    button[key="lang_zh"], button[key="lang_en"] {
+        background-color: #dc3545 !important;
+        color: white !important;
+    }
+    button[key="lang_zh"]:hover, button[key="lang_en"]:hover {
+        background-color: #c82333 !important;
     }
     
     .design-value-card { background-color: #e8f4fd; border-radius: 10px; padding: 15px; margin-top: 15px; text-align: center; border-left: 5px solid #cccccc; }
@@ -297,7 +306,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# 语言切换按钮（横向排列，红底白字）
+# 语言切换按钮（横向排列，红底白字样式已通过 CSS 实现）
 col_lang1, col_lang2, col_lang3 = st.columns([0.7, 0.15, 0.15])
 with col_lang2:
     if st.button("中文", key="lang_zh", use_container_width=True):
