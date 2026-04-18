@@ -247,7 +247,7 @@ if "lang" not in st.session_state:
 def t(key):
     return TEXTS[st.session_state.lang].get(key, key)
 
-# 自定义 CSS
+# 自定义 CSS (修改版)
 st.markdown("""
 <style>
     /* 全局字体颜色黑色 */
@@ -263,18 +263,22 @@ st.markdown("""
     .ppm-table th, .ppm-table td { border: 2px solid #000000; padding: 10px 16px; text-align: center; font-size: 1rem; }
     .ppm-table th { background-color: #e9ecef; font-weight: 600; }
     
-    /* 主按钮（开始\n蒙特卡洛模拟）红底白字 */
-    .stButton > button[data-testid="baseButton-primary"] {
+    /* 主按钮（开始\\n蒙特卡洛模拟）红底白字 + 换行支持 */
+    button[data-testid="baseButton-primary"] {
         background-color: #dc3545 !important;
         color: white !important;
         font-weight: 500;
         border-radius: 5px;
         font-size: 1.2rem;
         margin-top: 20px;
-        white-space: pre-line;
+        white-space: pre-line !important;
     }
-    .stButton > button[data-testid="baseButton-primary"]:hover {
+    button[data-testid="baseButton-primary"]:hover {
         background-color: #c82333 !important;
+    }
+    /* 确保按钮内所有文本都支持换行 */
+    button[data-testid="baseButton-primary"] * {
+        white-space: pre-line !important;
     }
     
     /* 辅助按钮（添加参数行、删除）浅蓝色 */
@@ -288,12 +292,14 @@ st.markdown("""
         background-color: #2980b9 !important;
     }
     
-    /* 语言切换按钮（中文/English）红底白字，覆盖辅助按钮样式 */
-    button[id="lang_zh"], button[id="lang_en"] {
+    /* 语言切换按钮（中文/English）红底白字，通过包裹类实现，覆盖辅助按钮样式 */
+    .lang-btn-wrap .stButton button {
         background-color: #dc3545 !important;
         color: white !important;
+        font-weight: 500;
+        border-radius: 5px;
     }
-    button[id="lang_zh"]:hover, button[id="lang_en"]:hover {
+    .lang-btn-wrap .stButton button:hover {
         background-color: #c82333 !important;
     }
     
@@ -306,16 +312,20 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# 语言切换按钮（横向排列，红底白字样式已通过 CSS 中的 id 选择器实现）
+# 语言切换按钮（横向排列，红底白字样式通过包裹 div 实现）
 col_lang1, col_lang2, col_lang3 = st.columns([0.7, 0.15, 0.15])
 with col_lang2:
+    st.markdown('<div class="lang-btn-wrap">', unsafe_allow_html=True)
     if st.button("中文", key="lang_zh", use_container_width=True):
         st.session_state.lang = "zh"
         st.rerun()
+    st.markdown('</div>', unsafe_allow_html=True)
 with col_lang3:
+    st.markdown('<div class="lang-btn-wrap">', unsafe_allow_html=True)
     if st.button("English", key="lang_en", use_container_width=True):
         st.session_state.lang = "en"
         st.rerun()
+    st.markdown('</div>', unsafe_allow_html=True)
 
 # 以下为原有代码，保持不变
 # 初始化 session state
@@ -998,7 +1008,7 @@ def main():
                 st.markdown(f"""
                 <table class="ppm-table">
                     <tr><th>CPK</th><th>Failure All</th><th>Failure Up</th><th>Failure Dn</th></tr>
-                    <tr><td style="text-align:center">{fmt(cpk)}</td><td style="text-align:center">{fmt(failures_all)}</td><td style="text-align:center">{fmt(failures_up)}</td><td style="text-align:center">{fmt(failures_dn)}</td>
+                    <tr><td style="text-align:center">{fmt(cpk)}</td><td style="text-align:center">{fmt(failures_all)}</td><td style="text-align:center">{fmt(failures_up)}</td><td style="text-align:center">{fmt(failures_dn)}</td></tr>
                 </table>
                 """, unsafe_allow_html=True)
             else:
