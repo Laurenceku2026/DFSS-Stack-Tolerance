@@ -263,7 +263,7 @@ st.markdown("""
     .ppm-table th, .ppm-table td { border: 2px solid #000000; padding: 10px 16px; text-align: center; font-size: 1rem; }
     .ppm-table th { background-color: #e9ecef; font-weight: 600; }
     
-    /* 主按钮（开始蒙特卡洛模拟）红底白字 */
+    /* 主按钮（开始\n蒙特卡洛模拟）红底白字 */
     .stButton > button[data-testid="baseButton-primary"] {
         background-color: #dc3545 !important;
         color: white !important;
