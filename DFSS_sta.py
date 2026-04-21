@@ -1,4 +1,4 @@
-# app.py
+# app.py - 免费 SaaS 版（无授权码限制）
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -9,10 +9,13 @@ import re
 import base64
 from io import BytesIO
 from typing import List, Dict, Any, Tuple, Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 from docx import Document
-from docx.shared import Inches, Pt
+from docx.shared import Inches, Pt, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.oxml.ns import qn
+import json
+import os
 
 st.set_page_config(page_title="Para_Variation - 蒙特卡洛模拟", layout="wide")
 
@@ -127,6 +130,10 @@ TEXTS = {
         "contribution": "贡献百分比",
         "contact_report": "联系电邮：Techlife2027@gmail.com",
         "report_date": "报告生成时间：{}",
+        "confirm_button": "确定",
+        "param_missing_for_letter": "公式中的字母 '{}' 对应的参数（行号 {}）缺少有效的参数名称、均值或标准差，请填写完整。",
+        "letter_not_found": "公式中使用了未定义的字母 '{}'，请检查参数表格或修改公式。",
+        "no_valid_params": "没有有效的参数（公式中的字母未在参数表中找到）。",
     },
     "en": {
         "title": "📊 Para_Variation - Monte Carlo Simulation",
@@ -237,106 +244,32 @@ TEXTS = {
         "contribution": "Contribution %",
         "contact_report": "Contact Email: Techlife2027@gmail.com",
         "report_date": "Report Date: {}",
+        "confirm_button": "OK",
+        "param_missing_for_letter": "Parameter for letter '{}' (row {}) is missing valid name, mean, or std. Please complete it.",
+        "letter_not_found": "Undefined letter '{}' used in formula. Please check parameter table or modify formula.",
+        "no_valid_params": "No valid parameters (letters in formula not found in parameter table).",
     }
 }
 
-# 初始化语言
+# 分布中英文映射
+DIST_TRANSLATION = {
+    "正态分布（完整）": "Normal (Full)",
+    "正态分布（正值）": "Normal (Positive only)",
+    "正态分布（负值）": "Normal (Negative only)",
+    "均匀分布": "Uniform",
+    "对数正态分布": "Log-normal",
+    "威布尔分布": "Weibull",
+    "三角分布": "Triangular",
+}
+DIST_TRANSLATION_REVERSE = {v: k for k, v in DIST_TRANSLATION.items()}
+
+# ==================== 初始化 Session State ====================
 if "lang" not in st.session_state:
     st.session_state.lang = "zh"
-
-def t(key):
-    return TEXTS[st.session_state.lang].get(key, key)
-
-# 自定义 CSS (修改版)
-st.markdown("""
-<style>
-    /* 全局字体颜色黑色 */
-    html, body, .stApp, .stMarkdown, .stText, .stNumberInput, .stSelectbox, .stTextArea, .stDataFrame, .stMetric {
-        color: #000000 !important;
-    }
-    .main-title { font-size: 2.5rem; font-weight: 600; color: #000000; margin-bottom: 1rem; }
-    .section-header { font-size: 1.5rem; font-weight: 500; color: #000000; border-left: 5px solid #cccccc; padding-left: 15px; margin: 20px 0 15px 0; }
-    .metric-card { background-color: #f8f9fa; border-radius: 10px; padding: 15px; text-align: center; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-    .metric-label { font-size: 1rem; color: #000000; margin-bottom: 5px; }
-    .metric-value { font-size: 1.8rem; font-weight: 600; color: #000000; }
-    .ppm-table { border-collapse: collapse; width: 100%; margin: 0 auto; }
-    .ppm-table th, .ppm-table td { border: 2px solid #000000; padding: 10px 16px; text-align: center; font-size: 1rem; }
-    .ppm-table th { background-color: #e9ecef; font-weight: 600; }
-    
-    /* 主按钮（开始\\n蒙特卡洛模拟）红底白字 + 换行支持 */
-    button[data-testid="baseButton-primary"] {
-        background-color: #dc3545 !important;
-        color: white !important;
-        font-weight: 500;
-        border-radius: 5px;
-        font-size: 1.2rem;
-        margin-top: 20px;
-        white-space: pre-line !important;
-    }
-    button[data-testid="baseButton-primary"]:hover {
-        background-color: #c82333 !important;
-    }
-    /* 确保按钮内所有文本都支持换行 */
-    button[data-testid="baseButton-primary"] * {
-        white-space: pre-line !important;
-    }
-    
-    /* 辅助按钮（添加参数行、删除）浅蓝色 */
-    .stButton > button:not([data-testid="baseButton-primary"]) {
-        background-color: #3498db !important;
-        color: white !important;
-        font-weight: 500;
-        border-radius: 5px;
-    }
-    .stButton > button:not([data-testid="baseButton-primary"]):hover {
-        background-color: #2980b9 !important;
-    }
-    
-    /* 语言切换按钮（中文/English）红底白字，通过包裹类实现，覆盖辅助按钮样式 */
-    .lang-btn-wrap .stButton button {
-        background-color: #dc3545 !important;
-        color: white !important;
-        font-weight: 500;
-        border-radius: 5px;
-    }
-    .lang-btn-wrap .stButton button:hover {
-        background-color: #c82333 !important;
-    }
-    
-    .design-value-card { background-color: #e8f4fd; border-radius: 10px; padding: 15px; margin-top: 15px; text-align: center; border-left: 5px solid #cccccc; }
-    .design-value-card strong { font-size: 1.1rem; color: #000000; }
-    .design-value-number { font-size: 1.6rem; font-weight: 600; color: #000000; margin-top: 5px; }
-    .big-label { font-size: 1.3rem; font-weight: 500; margin-bottom: 5px; color: #000000; }
-    .param-letter { font-weight: bold; font-size: 1rem; text-align: center; background-color: #e9ecef; border-radius: 4px; padding: 6px 0; width: 40px; color: #000000; }
-    .formula-hint { font-size: 0.9rem; color: #000000; margin-bottom: 5px; }
-</style>
-""", unsafe_allow_html=True)
-
-# 语言切换按钮（横向排列，红底白字样式通过包裹 div 实现）
-col_lang1, col_lang2, col_lang3 = st.columns([0.7, 0.15, 0.15])
-with col_lang2:
-    st.markdown('<div class="lang-btn-wrap">', unsafe_allow_html=True)
-    if st.button("中文", key="lang_zh", use_container_width=True):
-        st.session_state.lang = "zh"
-        st.rerun()
-    st.markdown('</div>', unsafe_allow_html=True)
-with col_lang3:
-    st.markdown('<div class="lang-btn-wrap">', unsafe_allow_html=True)
-    if st.button("English", key="lang_en", use_container_width=True):
-        st.session_state.lang = "en"
-        st.rerun()
-    st.markdown('</div>', unsafe_allow_html=True)
-
-# 以下为原有代码，保持不变
-# 初始化 session state
-if "params" not in st.session_state:
-    st.session_state.params = pd.DataFrame({
-        "参数名称": ["Cell Cap", "Suction P", "Brush P", "Other(Pump+display)", "V"],
-        "均值(Typ)": [2450.0, 70.0, 30.0, 15.0, 3.6],
-        "标准差(Std)": [20.74, 0.77, 0.90, 0.45, 0.0036],
-        "分布": [t("dist_full") for _ in range(5)],
-        "分布参数": [{} for _ in range(5)]
-    })
+if "analyst_name" not in st.session_state:
+    st.session_state.analyst_name = ""
+if "analyst_title" not in st.session_state:
+    st.session_state.analyst_title = ""
 if "sim_results_raw" not in st.session_state:
     st.session_state.sim_results_raw = None
 if "formula" not in st.session_state:
@@ -347,21 +280,18 @@ if "usl_str" not in st.session_state:
     st.session_state.usl_str = "40.0"
 if "lsl_str" not in st.session_state:
     st.session_state.lsl_str = "30.0"
-if "analyst_name" not in st.session_state:
-    st.session_state.analyst_name = ""
-if "analyst_title" not in st.session_state:
-    st.session_state.analyst_title = ""
+if "params" not in st.session_state:
+    st.session_state.params = pd.DataFrame({
+        "参数名称": ["Cell Cap", "Suction P", "Brush P", "Other(Pump+display)", "V"],
+        "均值(Typ)": [2450.0, 70.0, 30.0, 15.0, 3.6],
+        "标准差(Std)": [20.74, 0.77, 0.90, 0.45, 0.0036],
+        "分布": ["正态分布（完整）" for _ in range(5)],
+        "分布参数": [{} for _ in range(5)]
+    })
 
-def get_distributions():
-    return [
-        t("dist_full"),
-        t("dist_pos"),
-        t("dist_neg"),
-        t("dist_uniform"),
-        t("dist_lognorm"),
-        t("dist_weibull"),
-        t("dist_tri")
-    ]
+# ==================== 辅助函数 ====================
+def t(key):
+    return TEXTS[st.session_state.lang].get(key, key)
 
 def update_param_letters():
     letters = [chr(ord('A') + i) for i in range(len(st.session_state.params))]
@@ -370,6 +300,31 @@ def update_param_letters():
     }
 update_param_letters()
 
+def update_default_param_names_for_lang():
+    """当语言切换时，将参数名称中的默认值（'新参数' 或 'New Parameter'）统一更新为当前语言的默认名称"""
+    target_name = "新参数" if st.session_state.lang == "zh" else "New Parameter"
+    for idx, row in st.session_state.params.iterrows():
+        current_name = row["参数名称"]
+        if current_name == "新参数" or current_name == "New Parameter":
+            st.session_state.params.at[idx, "参数名称"] = target_name
+            key = f"param_name_{idx}"
+            if key in st.session_state:
+                st.session_state[key] = target_name
+    update_param_letters()
+
+def update_dist_display_for_lang():
+    """当语言切换时，将分布下拉框的 session_state 值更新为当前语言对应的显示值"""
+    for idx, row in st.session_state.params.iterrows():
+        stored_dist = row["分布"]
+        if st.session_state.lang == "zh":
+            display_dist = stored_dist
+        else:
+            display_dist = DIST_TRANSLATION.get(stored_dist, stored_dist)
+        key = f"param_dist_{idx}"
+        if key in st.session_state:
+            st.session_state[key] = display_dist
+
+# ==================== 蒙特卡洛模拟核心函数 ====================
 def parse_limit(s: str) -> Optional[float]:
     if s is None or s.strip() == "":
         return None
@@ -426,32 +381,54 @@ def compute_design_value(params_df: pd.DataFrame, formula: str, param_letters: D
     val = safe_eval_with_mapping(formula, param_names, means, param_letters)
     return val if not np.isnan(val) else None
 
+def get_distributions():
+    if st.session_state.lang == "zh":
+        return [
+            t("dist_full"),
+            t("dist_pos"),
+            t("dist_neg"),
+            t("dist_uniform"),
+            t("dist_lognorm"),
+            t("dist_weibull"),
+            t("dist_tri")
+        ]
+    else:
+        return [
+            "Normal (Full)",
+            "Normal (Positive only)",
+            "Normal (Negative only)",
+            "Uniform",
+            "Log-normal",
+            "Weibull",
+            "Triangular"
+        ]
+
 def generate_sample(dist: str, mean: float, std: float, dist_params: Dict, size: int = 1) -> np.ndarray:
-    if dist == t("dist_full"):
+    if "正态分布（完整）" in dist or "Normal (Full)" in dist:
         return np.random.normal(mean, std, size)
-    elif dist == t("dist_pos"):
+    elif "正态分布（正值）" in dist or "Normal (Positive only)" in dist:
         a, b = (0 - mean) / std if std > 0 else -np.inf, np.inf
         if std == 0:
             return np.full(size, max(mean, 0))
         return stats.truncnorm.rvs(a, b, loc=mean, scale=std, size=size)
-    elif dist == t("dist_neg"):
+    elif "正态分布（负值）" in dist or "Normal (Negative only)" in dist:
         a, b = -np.inf, (0 - mean) / std if std > 0 else np.inf
         if std == 0:
             return np.full(size, min(mean, 0))
         return stats.truncnorm.rvs(a, b, loc=mean, scale=std, size=size)
-    elif dist == t("dist_uniform"):
+    elif "均匀分布" in dist or "Uniform" in dist:
         low = dist_params.get("low", mean - 3*std)
         high = dist_params.get("high", mean + 3*std)
         return np.random.uniform(low, high, size)
-    elif dist == t("dist_lognorm"):
+    elif "对数正态分布" in dist or "Log-normal" in dist:
         mean_log = dist_params.get("mean_log", 0.0)
         sigma_log = dist_params.get("sigma_log", 1.0)
         return np.random.lognormal(mean_log, sigma_log, size)
-    elif dist == t("dist_weibull"):
+    elif "威布尔分布" in dist or "Weibull" in dist:
         shape = dist_params.get("shape", 1.0)
         scale = dist_params.get("scale", 1.0)
         return np.random.weibull(shape, size) * scale
-    elif dist == t("dist_tri"):
+    elif "三角分布" in dist or "Triangular" in dist:
         left = dist_params.get("left", mean - 3*std)
         mode = dist_params.get("mode", mean)
         right = dist_params.get("right", mean + 3*std)
@@ -543,13 +520,13 @@ def sensitivity_analysis(params_df: pd.DataFrame, formula: str, n_sim: int, para
     return df_contrib, contributions, param_names
 
 def plot_pdf(dist: str, mean: float, std: float, dist_params: Dict, ax):
-    if dist == t("dist_full"):
+    if "正态分布（完整）" in dist or "Normal (Full)" in dist:
         x = np.linspace(mean - 4*std, mean + 4*std, 200)
         y = stats.norm.pdf(x, mean, std)
         ax.plot(x, y, 'b-')
         ax.fill_between(x, y, alpha=0.3)
         ax.set_title(f"N(μ={mean:.1f}, σ={std:.2f})", fontsize=8)
-    elif dist == t("dist_pos"):
+    elif "正态分布（正值）" in dist or "Normal (Positive only)" in dist:
         a, b = (0 - mean) / std if std > 0 else -np.inf, np.inf
         if std == 0:
             x = [max(mean, 0)]
@@ -560,7 +537,7 @@ def plot_pdf(dist: str, mean: float, std: float, dist_params: Dict, ax):
         ax.plot(x, y, 'g-')
         ax.fill_between(x, y, alpha=0.3)
         ax.set_title(f"TruncNorm(≥0)", fontsize=8)
-    elif dist == t("dist_neg"):
+    elif "正态分布（负值）" in dist or "Normal (Negative only)" in dist:
         a, b = -np.inf, (0 - mean) / std if std > 0 else np.inf
         if std == 0:
             x = [min(mean, 0)]
@@ -571,7 +548,7 @@ def plot_pdf(dist: str, mean: float, std: float, dist_params: Dict, ax):
         ax.plot(x, y, 'r-')
         ax.fill_between(x, y, alpha=0.3)
         ax.set_title(f"TruncNorm(≤0)", fontsize=8)
-    elif dist == t("dist_uniform"):
+    elif "均匀分布" in dist or "Uniform" in dist:
         low = dist_params.get("low", mean - 3*std)
         high = dist_params.get("high", mean + 3*std)
         x = np.linspace(low, high, 200)
@@ -579,7 +556,7 @@ def plot_pdf(dist: str, mean: float, std: float, dist_params: Dict, ax):
         ax.plot(x, y, 'purple')
         ax.fill_between(x, y, alpha=0.3)
         ax.set_title(f"U({low:.1f}, {high:.1f})", fontsize=8)
-    elif dist == t("dist_lognorm"):
+    elif "对数正态分布" in dist or "Log-normal" in dist:
         mean_log = dist_params.get("mean_log", 0.0)
         sigma_log = dist_params.get("sigma_log", 1.0)
         x = np.linspace(0, np.exp(mean_log + 3*sigma_log), 200)
@@ -587,7 +564,7 @@ def plot_pdf(dist: str, mean: float, std: float, dist_params: Dict, ax):
         ax.plot(x, y, 'orange')
         ax.fill_between(x, y, alpha=0.3)
         ax.set_title(f"LogN(μlog={mean_log:.1f}, σlog={sigma_log:.2f})", fontsize=8)
-    elif dist == t("dist_weibull"):
+    elif "威布尔分布" in dist or "Weibull" in dist:
         shape = dist_params.get("shape", 1.0)
         scale = dist_params.get("scale", 1.0)
         x = np.linspace(0, scale * 3, 200)
@@ -595,7 +572,7 @@ def plot_pdf(dist: str, mean: float, std: float, dist_params: Dict, ax):
         ax.plot(x, y, 'brown')
         ax.fill_between(x, y, alpha=0.3)
         ax.set_title(f"Weibull(k={shape:.1f}, λ={scale:.1f})", fontsize=8)
-    elif dist == t("dist_tri"):
+    elif "三角分布" in dist or "Triangular" in dist:
         left = dist_params.get("left", mean - 3*std)
         mode = dist_params.get("mode", mean)
         right = dist_params.get("right", mean + 3*std)
@@ -760,10 +737,99 @@ def generate_word_report(raw, usl, lsl, n_sim, seed, formula, params_df, param_l
     doc_bytes.seek(0)
     return doc_bytes
 
+# ==================== 辅助函数：过滤参数表，只保留公式中使用的字母对应的行 ====================
+def filter_params_by_formula(params_df: pd.DataFrame, formula: str, param_letters: Dict[str, str]) -> Tuple[pd.DataFrame, Dict[str, str]]:
+    letters_in_formula = set(re.findall(r'\b([A-Za-z])\b', formula))
+    letters_in_formula = {l.upper() for l in letters_in_formula}
+    
+    letter_to_param = {letter: param_name for param_name, letter in param_letters.items()}
+    keep_param_names = []
+    for letter in letters_in_formula:
+        if letter in letter_to_param:
+            keep_param_names.append(letter_to_param[letter])
+    
+    filtered_df = params_df[params_df["参数名称"].isin(keep_param_names)].copy()
+    new_param_letters = {}
+    for idx, row in filtered_df.iterrows():
+        param_name = row["参数名称"]
+        for letter, pname in letter_to_param.items():
+            if pname == param_name:
+                new_param_letters[param_name] = letter
+                break
+    return filtered_df, new_param_letters
+
+# ==================== 主函数 ====================
 def main():
+    st.markdown("""
+    <style>
+        html, body, .stApp, .stMarkdown, .stText, .stNumberInput, .stSelectbox, .stTextArea, .stDataFrame, .stMetric {
+            color: #000000 !important;
+        }
+        .main-title { font-size: 2.5rem; font-weight: 600; color: #000000; margin-bottom: 1rem; }
+        .section-header { font-size: 1.5rem; font-weight: 500; color: #000000; border-left: 5px solid #cccccc; padding-left: 15px; margin: 20px 0 15px 0; }
+        .metric-card { background-color: #f8f9fa; border-radius: 10px; padding: 15px; text-align: center; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .metric-label { font-size: 1rem; color: #000000; margin-bottom: 5px; }
+        .metric-value { font-size: 1.8rem; font-weight: 600; color: #000000; }
+        .ppm-table { border-collapse: collapse; width: 100%; margin: 0 auto; }
+        .ppm-table th, .ppm-table td { border: 2px solid #000000; padding: 10px 16px; text-align: center; font-size: 1rem; }
+        .ppm-table th { background-color: #e9ecef; font-weight: 600; }
+        button[data-testid="baseButton-primary"] {
+            background-color: #dc3545 !important;
+            color: white !important;
+            font-weight: 500;
+            border-radius: 5px;
+            font-size: 1.2rem;
+            margin-top: 20px;
+            white-space: pre-line !important;
+        }
+        button[data-testid="baseButton-primary"]:hover { background-color: #c82333 !important; }
+        button[data-testid="baseButton-primary"] * { white-space: pre-line !important; }
+        .stButton > button:not([data-testid="baseButton-primary"]) {
+            background-color: #3498db !important;
+            color: white !important;
+            font-weight: 500;
+            border-radius: 5px;
+        }
+        .stButton > button:not([data-testid="baseButton-primary"]):hover { background-color: #2980b9 !important; }
+        .lang-btn-wrap .stButton button {
+            background-color: #dc3545 !important;
+            color: white !important;
+            font-weight: 500;
+            border-radius: 5px;
+        }
+        .lang-btn-wrap .stButton button:hover { background-color: #c82333 !important; }
+        .design-value-card { background-color: #e8f4fd; border-radius: 10px; padding: 15px; margin-top: 15px; text-align: center; border-left: 5px solid #cccccc; }
+        .design-value-card strong { font-size: 1.1rem; color: #000000; }
+        .design-value-number { font-size: 1.6rem; font-weight: 600; color: #000000; margin-top: 5px; }
+        .big-label { font-size: 1.3rem; font-weight: 500; margin-bottom: 5px; color: #000000; }
+        .param-letter { font-weight: bold; font-size: 1rem; text-align: center; background-color: #e9ecef; border-radius: 4px; padding: 6px 0; width: 40px; color: #000000; }
+        .formula-hint { font-size: 0.9rem; color: #000000; margin-bottom: 5px; }
+    </style>
+    """, unsafe_allow_html=True)
+
+    # 右上角语言切换
+    col_left, col_spacer, col_zh, col_en = st.columns([0.5, 0.2, 0.15, 0.15])
+    with col_zh:
+        st.markdown('<div class="lang-btn-wrap">', unsafe_allow_html=True)
+        if st.button("中文", key="lang_zh", use_container_width=True):
+            st.session_state.lang = "zh"
+            update_default_param_names_for_lang()
+            update_dist_display_for_lang()
+            st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
+    with col_en:
+        st.markdown('<div class="lang-btn-wrap">', unsafe_allow_html=True)
+        if st.button("English", key="lang_en", use_container_width=True):
+            st.session_state.lang = "en"
+            update_default_param_names_for_lang()
+            update_dist_display_for_lang()
+            st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
+
     st.markdown(f'<div class="main-title">{t("title")}</div>', unsafe_allow_html=True)
     st.markdown(t("subtitle"))
 
+    # 侧边栏
     with st.sidebar:
         st.markdown(f"## {t('sim_settings')}")
         n_sim = st.number_input(t("trail_number"), min_value=100, max_value=100000, value=1000, step=100)
@@ -818,30 +884,52 @@ def main():
         with cols[3]:
             std_val = st.number_input("", value=float(row["标准差(Std)"]), step=0.01, format="%.4f", key=f"param_std_{idx}", label_visibility="collapsed")
         with cols[4]:
-            dist_val = st.selectbox("", distributions_list, index=distributions_list.index(row["分布"]) if row["分布"] in distributions_list else 0, key=f"param_dist_{idx}", label_visibility="collapsed")
+            stored_dist = row["分布"]
+            if st.session_state.lang == "zh":
+                display_dist = stored_dist
+            else:
+                display_dist = DIST_TRANSLATION.get(stored_dist, stored_dist)
+            try:
+                dist_index = distributions_list.index(display_dist)
+            except ValueError:
+                dist_index = 0
+            dist_val = st.selectbox("", distributions_list, index=dist_index, key=f"param_dist_{idx}", label_visibility="collapsed")
+            if st.session_state.lang == "zh":
+                stored_dist_val = dist_val
+            else:
+                stored_dist_val = DIST_TRANSLATION_REVERSE.get(dist_val, dist_val)
         with cols[5]:
-            delete = st.button("🗑️", key=f"del_{idx}")
+            if st.button("🗑️", key=f"del_{idx}"):
+                for key in [f"param_name_{idx}", f"param_mean_{idx}", f"param_std_{idx}", f"param_dist_{idx}", f"expander_{idx}"]:
+                    if key in st.session_state:
+                        del st.session_state[key]
+                st.session_state.params.drop(index=idx, inplace=True)
+                st.session_state.params.reset_index(drop=True, inplace=True)
+                update_param_letters()
+                st.rerun()
 
         current_dist_params = row.get("分布参数", {}) if isinstance(row.get("分布参数"), dict) else {}
-        if dist_val in [t("dist_uniform"), t("dist_lognorm"), t("dist_weibull"), t("dist_tri")]:
-            if dist_val == t("dist_uniform") and "low" not in current_dist_params:
-                current_dist_params["low"] = mean_val - 3 * std_val
-                current_dist_params["high"] = mean_val + 3 * std_val
-            elif dist_val == t("dist_lognorm") and "mean_log" not in current_dist_params:
-                current_dist_params["mean_log"] = 0.0
-                current_dist_params["sigma_log"] = 1.0
-            elif dist_val == t("dist_weibull") and "shape" not in current_dist_params:
-                current_dist_params["shape"] = 1.0
-                current_dist_params["scale"] = 1.0
-            elif dist_val == t("dist_tri") and "left" not in current_dist_params:
-                current_dist_params["left"] = mean_val - 3 * std_val
-                current_dist_params["mode"] = mean_val
-                current_dist_params["right"] = mean_val + 3 * std_val
+        if stored_dist_val != stored_dist:
+            if stored_dist_val == "均匀分布":
+                current_dist_params = {"low": mean_val - 3 * std_val, "high": mean_val + 3 * std_val}
+            elif stored_dist_val == "对数正态分布":
+                current_dist_params = {"mean_log": 0.0, "sigma_log": 1.0}
+            elif stored_dist_val == "威布尔分布":
+                current_dist_params = {"shape": 1.0, "scale": 1.0}
+            elif stored_dist_val == "三角分布":
+                current_dist_params = {"left": mean_val - 3 * std_val, "mode": mean_val, "right": mean_val + 3 * std_val}
+            else:
+                current_dist_params = {}
 
-        need_expand = dist_val in [t("dist_uniform"), t("dist_lognorm"), t("dist_weibull"), t("dist_tri")]
+        need_expand = stored_dist_val in ["均匀分布", "对数正态分布", "威布尔分布", "三角分布"]
+        # 管理 expander 展开状态，默认展开
+        expander_key = f"expander_{idx}"
+        if expander_key not in st.session_state:
+            st.session_state[expander_key] = True
+
         if need_expand:
-            with st.expander(t("configure").format(dist_val), expanded=True):
-                if dist_val == t("dist_uniform"):
+            with st.expander(t("configure").format(dist_val), expanded=st.session_state[expander_key]):
+                if stored_dist_val == "均匀分布":
                     low = st.number_input(t("uniform_low"), value=float(current_dist_params.get("low", mean_val - 3*std_val)), key=f"uniform_low_{idx}", step=0.1)
                     high = st.number_input(t("uniform_high"), value=float(current_dist_params.get("high", mean_val + 3*std_val)), key=f"uniform_high_{idx}", step=0.1)
                     if low >= high:
@@ -849,7 +937,7 @@ def main():
                     else:
                         current_dist_params["low"] = low
                         current_dist_params["high"] = high
-                elif dist_val == t("dist_lognorm"):
+                elif stored_dist_val == "对数正态分布":
                     mean_log = st.number_input(t("lognorm_meanlog"), value=float(current_dist_params.get("mean_log", 0.0)), key=f"lognorm_meanlog_{idx}", step=0.1)
                     sigma_log = st.number_input(t("lognorm_sigmalog"), value=float(current_dist_params.get("sigma_log", 1.0)), key=f"lognorm_sigmalog_{idx}", step=0.05, format="%.3f")
                     if sigma_log <= 0:
@@ -857,7 +945,7 @@ def main():
                     else:
                         current_dist_params["mean_log"] = mean_log
                         current_dist_params["sigma_log"] = sigma_log
-                elif dist_val == t("dist_weibull"):
+                elif stored_dist_val == "威布尔分布":
                     shape = st.number_input(t("weibull_shape"), value=float(current_dist_params.get("shape", 1.0)), key=f"weibull_shape_{idx}", step=0.1, min_value=0.1)
                     scale = st.number_input(t("weibull_scale"), value=float(current_dist_params.get("scale", 1.0)), key=f"weibull_scale_{idx}", step=0.1, min_value=0.1)
                     if shape <= 0 or scale <= 0:
@@ -865,7 +953,7 @@ def main():
                     else:
                         current_dist_params["shape"] = shape
                         current_dist_params["scale"] = scale
-                elif dist_val == t("dist_tri"):
+                elif stored_dist_val == "三角分布":
                     left = st.number_input(t("tri_left"), value=float(current_dist_params.get("left", mean_val - 3*std_val)), key=f"tri_left_{idx}", step=0.1)
                     mode = st.number_input(t("tri_mode"), value=float(current_dist_params.get("mode", mean_val)), key=f"tri_mode_{idx}", step=0.1)
                     right = st.number_input(t("tri_right"), value=float(current_dist_params.get("right", mean_val + 3*std_val)), key=f"tri_right_{idx}", step=0.1)
@@ -877,33 +965,46 @@ def main():
                         current_dist_params["right"] = right
 
                 fig, ax = plt.subplots(figsize=(4, 2))
-                plot_pdf(dist_val, mean_val, std_val, current_dist_params, ax)
+                plot_pdf(stored_dist_val, mean_val, std_val, current_dist_params, ax)
                 st.pyplot(fig)
                 plt.close(fig)
 
-        rows_data.append((name, mean_val, std_val, dist_val, current_dist_params, delete, letter))
+                # 确定按钮，点击后关闭 expander
+                if st.button(t("confirm_button"), key=f"confirm_{idx}"):
+                    st.session_state[expander_key] = False
+                    st.rerun()
+
+        rows_data.append((name, mean_val, std_val, stored_dist_val, current_dist_params, letter))
 
     new_params = []
-    for (name, mean_val, std_val, dist_val, dist_params, delete, letter) in rows_data:
-        if not delete:
-            new_params.append({
-                "参数名称": name,
-                "均值(Typ)": mean_val,
-                "标准差(Std)": std_val,
-                "分布": dist_val,
-                "分布参数": dist_params
-            })
-    if st.button(t("add_row"), use_container_width=True):
+    for (name, mean_val, std_val, dist_val, dist_params, letter) in rows_data:
         new_params.append({
-            "参数名称": t("new_param_default"),
-            "均值(Typ)": 0.0,
-            "标准差(Std)": 0.0,
-            "分布": t("dist_full"),
-            "分布参数": {}
+            "参数名称": name,
+            "均值(Typ)": mean_val,
+            "标准差(Std)": std_val,
+            "分布": dist_val,
+            "分布参数": dist_params
         })
-
     st.session_state.params = pd.DataFrame(new_params)
     update_param_letters()
+
+    # 添加行按钮
+    if st.button(t("add_row"), use_container_width=True):
+        default_name = "新参数" if st.session_state.lang == "zh" else "New Parameter"
+        new_idx = len(st.session_state.params)
+        new_row = pd.DataFrame({
+            "参数名称": [default_name],
+            "均值(Typ)": [0.0],
+            "标准差(Std)": [0.0],
+            "分布": ["正态分布（完整）"],
+            "分布参数": [{}]
+        })
+        st.session_state.params = pd.concat([st.session_state.params, new_row], ignore_index=True)
+        st.session_state[f"param_name_{new_idx}"] = default_name
+        display_dist = "正态分布（完整）" if st.session_state.lang == "zh" else "Normal (Full)"
+        st.session_state[f"param_dist_{new_idx}"] = display_dist
+        update_param_letters()
+        st.rerun()
 
     # 公式定义区域
     st.markdown(f'<div class="section-header">{t("formula_def")}</div>', unsafe_allow_html=True)
@@ -916,38 +1017,71 @@ def main():
     st.session_state.formula = formula
     st.caption(t("formula_supported"))
 
-    design_val = compute_design_value(st.session_state.params, formula, st.session_state.param_letters)
-    if design_val is not None and not np.isnan(design_val):
-        st.markdown(f"""
-        <div class="design-value-card">
-            <strong>{t("design_value")}</strong><br>
-            <span class="design-value-number">{output_name} = {design_val:.2f}</span>
-        </div>
-        """, unsafe_allow_html=True)
+    filtered_params, filtered_letters = filter_params_by_formula(st.session_state.params, formula, st.session_state.param_letters)
+    if len(filtered_params) > 0:
+        design_val = compute_design_value(filtered_params, formula, filtered_letters)
+        if design_val is not None and not np.isnan(design_val):
+            st.markdown(f"""
+            <div class="design-value-card">
+                <strong>{t("design_value")}</strong><br>
+                <span class="design-value-number">{output_name} = {design_val:.2f}</span>
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            st.warning(t("formula_invalid"))
     else:
         st.warning(t("formula_invalid"))
 
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         if st.button(t("start_sim"), type="primary", use_container_width=True):
-            if st.session_state.params.isnull().values.any():
-                st.error(t("formula_invalid"))
+            letters_in_formula = set(re.findall(r'\b([A-Za-z])\b', formula))
+            letters_in_formula = {l.upper() for l in letters_in_formula}
+            
+            param_letters = st.session_state.param_letters
+            letter_to_param = {letter: param_name for param_name, letter in param_letters.items()}
+            
+            missing_letters = []
+            for letter in letters_in_formula:
+                if letter not in letter_to_param:
+                    missing_letters.append(letter)
+            if missing_letters:
+                st.error(t("letter_not_found").format(", ".join(missing_letters)))
                 st.stop()
-            param_names = st.session_state.params["参数名称"].astype(str).tolist()
-            if len(set(param_names)) != len(param_names):
-                st.error(t("formula_invalid"))
+            
+            invalid_params = []
+            for letter in letters_in_formula:
+                param_name = letter_to_param[letter]
+                row = st.session_state.params[st.session_state.params["参数名称"] == param_name].iloc[0]
+                param_name_val = str(row["参数名称"]).strip()
+                mean_val = row["均值(Typ)"]
+                std_val = row["标准差(Std)"]
+                if param_name_val == "" or pd.isna(mean_val) or pd.isna(std_val):
+                    idx = st.session_state.params[st.session_state.params["参数名称"] == param_name].index[0]
+                    invalid_params.append((letter, idx+1))
+            if invalid_params:
+                for letter, row_num in invalid_params:
+                    st.error(t("param_missing_for_letter").format(letter, row_num))
                 st.stop()
+            
             if not formula.strip():
                 st.error(t("formula_invalid"))
                 st.stop()
 
+            filtered_params_for_sim, filtered_letters_for_sim = filter_params_by_formula(
+                st.session_state.params, formula, st.session_state.param_letters
+            )
+            if len(filtered_params_for_sim) == 0:
+                st.error(t("no_valid_params"))
+                st.stop()
+
             with st.spinner(t("start_sim")):
-                sim_res = run_monte_carlo(st.session_state.params, formula, n_sim, st.session_state.param_letters, seed)
+                sim_res = run_monte_carlo(filtered_params_for_sim, formula, n_sim, filtered_letters_for_sim, seed)
             if sim_res is None:
                 st.stop()
 
             with st.spinner(t("start_sim")):
-                df_contrib, contributions, param_names = sensitivity_analysis(st.session_state.params, formula, n_sim, st.session_state.param_letters, seed)
+                df_contrib, contributions, param_names = sensitivity_analysis(filtered_params_for_sim, formula, n_sim, filtered_letters_for_sim, seed)
 
             st.session_state.sim_results_raw = {
                 "results": sim_res["results"],
@@ -964,7 +1098,7 @@ def main():
                 "param_names": sim_res["param_names"],
                 "df_contrib": df_contrib,
                 "contributions": contributions,
-                "params_df": st.session_state.params,
+                "params_df": filtered_params_for_sim,
                 "output_name": output_name,
                 "formula": formula,
             }
@@ -1034,9 +1168,10 @@ def main():
             csv = samples_df.to_csv(index=False, float_format="%.6f")
             st.download_button(t("download_csv"), data=csv, file_name=f"monte_carlo_data_{output_name}.csv", mime="text/csv")
 
-        doc_bytes = generate_word_report(raw, usl, lsl, n_sim, seed, formula, st.session_state.params, st.session_state.param_letters, st.session_state.analyst_name, st.session_state.analyst_title, output_name)
-        date_str = datetime.now().strftime("%Y%m%d")
-        st.download_button(t("download_report"), data=doc_bytes, file_name=f"DFSS_Report_{output_name}_{date_str}.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+        if st.button(t("download_report")):
+            doc_bytes = generate_word_report(raw, usl, lsl, n_sim, seed, formula, raw["params_df"], st.session_state.param_letters, st.session_state.analyst_name, st.session_state.analyst_title, output_name)
+            date_str = datetime.now().strftime("%Y%m%d")
+            st.download_button(t("download_report"), data=doc_bytes, file_name=f"DFSS_Report_{output_name}_{date_str}.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
         st.success(t("success"))
 
 if __name__ == "__main__":
