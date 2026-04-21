@@ -1,3 +1,64 @@
+import streamlit as st
+import jwt
+import time
+
+# ========== 语言配置（与门户保持一致） ==========
+if "language" not in st.session_state:
+    # 优先从 URL 参数获取语言，否则默认中文
+    lang_param = st.query_params.get("lang", "zh")
+    st.session_state.language = lang_param if lang_param in ["zh", "en"] else "zh"
+
+TEXTS = {
+    "zh": {
+        "no_token": "❌ 未检测到登录信息，请返回门户重新登录",
+        "token_expired": "⏰ 登录已过期，请返回门户重新登录",
+        "token_invalid": "🔐 无效的登录凭证，请返回门户重新登录",
+        "welcome": "✅ 欢迎 {}，您已成功登录",
+    },
+    "en": {
+        "no_token": "❌ No login information found. Please return to the portal and log in again.",
+        "token_expired": "⏰ Login expired. Please return to the portal and log in again.",
+        "token_invalid": "🔐 Invalid credentials. Please return to the portal and log in again.",
+        "welcome": "✅ Welcome {}, you are now logged in.",
+    }
+}
+
+def t(key):
+    return TEXTS[st.session_state.language].get(key, key)
+
+# ========== JWT 验证配置 ==========
+JWT_SECRET = st.secrets.get("JWT_SECRET_KEY", "fallback-secret-key-change-me")
+
+def verify_token(token):
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
+        if payload["exp"] > time.time():
+            return payload["email"]
+        else:
+            return None
+    except Exception:
+        return None
+
+# ========== 执行验证 ==========
+query_params = st.query_params
+token = query_params.get("token", None)
+
+if token is None:
+    st.error(t("no_token"))
+    st.stop()
+
+email = verify_token(token)
+if email is None:
+    st.error(t("token_expired") if token else t("token_invalid"))
+    st.stop()
+
+# 验证通过，存储用户信息
+st.session_state.user_email = email
+st.success(t("welcome").format(email))
+
+# ========== 然后继续你原有的工具代码 ==========
+# ... 原有逻辑
+
 # app.py - 免费 SaaS 版（无授权码限制）
 import streamlit as st
 import pandas as pd
