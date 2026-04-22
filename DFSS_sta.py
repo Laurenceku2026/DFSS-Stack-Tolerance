@@ -56,6 +56,21 @@ if email is None:
 st.session_state.user_email = email
 st.success(t("welcome").format(email))
 
+#====添加
+from subscription_utils import can_use_tool, increment_usage_count
+
+# 在 JWT 验证通过后，获取 email
+email = st.session_state.user_email
+
+# 检查是否可用
+if not can_use_tool(email):
+    st.stop()
+
+# ... 执行分析 ...
+
+# 分析成功后增加计数
+increment_usage_count(email)
+
 # ========== 然后继续你原有的工具代码 ==========
 # ... 原有逻辑
 
