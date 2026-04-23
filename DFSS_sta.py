@@ -1,3 +1,15 @@
+# 添加到每个子应用的顶部（在 st.set_page_config 之后）
+import streamlit as st
+
+# 获取 URL 参数
+query_params = st.query_params
+if "user_id" in query_params:
+    st.session_state.user_id = query_params["user_id"]
+    st.session_state.user_email = query_params.get("email", [""])[0]
+else:
+    st.warning("请从 TechLife Portal 登录后访问")
+    st.stop()
+
 # ========== 然后继续你原有的工具代码 ==========
 # ... 原有逻辑
 
