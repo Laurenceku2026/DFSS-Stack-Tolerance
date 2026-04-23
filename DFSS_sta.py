@@ -10,6 +10,12 @@ else:
     st.warning("请从 TechLife Portal 登录后访问")
     st.stop()
 
+# 在子应用开头添加
+query_params = st.query_params
+if "lang" in query_params:
+    st.session_state.lang = query_params["lang"]
+#================================================================
+
 # ========== 然后继续你原有的工具代码 ==========
 # ... 原有逻辑
 
