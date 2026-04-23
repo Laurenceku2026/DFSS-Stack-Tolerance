@@ -1,4 +1,4 @@
-# ==================== 子应用顶部代码（添加到所有子应用）====================
+# ==================== 子应用顶部代码 ====================
 import streamlit as st
 from urllib.parse import parse_qs
 
@@ -9,11 +9,16 @@ query_params = st.query_params
 if "user_id" in query_params:
     st.session_state.user_id = query_params["user_id"]
     st.session_state.user_email = query_params.get("email", [""])[0]
+    
+    # 从邮箱中提取用户名（@前面的部分）
+    if st.session_state.user_email:
+        username = st.session_state.user_email.split('@')[0]
+        st.session_state.username = username
 else:
     st.warning("请从 TechLife Portal 登录后访问")
     st.stop()
 
-# 设置语言（关键！）
+# 设置语言
 if "lang" in query_params:
     lang_param = query_params["lang"]
     if lang_param == "zh":
@@ -21,12 +26,12 @@ if "lang" in query_params:
     elif lang_param == "en":
         st.session_state.lang = "en"
 else:
-    # 默认中文
     st.session_state.lang = "zh"
 
-# 可选：显示欢迎信息
-st.sidebar.success(f"👤 用户: {st.session_state.user_email}")
-st.sidebar.info(f"🌐 语言: {'中文' if st.session_state.lang == 'zh' else 'English'}")
+# 显示用户信息（侧边栏）
+with st.sidebar:
+    st.success(f"👤 用户: {st.session_state.username}")
+    st.info(f"🌐 语言: {'中文' if st.session_state.lang == 'zh' else 'English'}")
 
 # ==========原有的工具代码 ==========
 # ... 原有逻辑
