@@ -1,8 +1,11 @@
-# 添加到每个子应用的顶部（在 st.set_page_config 之后）
+# ==================== 子应用顶部代码（添加到所有子应用）====================
 import streamlit as st
+from urllib.parse import parse_qs
 
 # 获取 URL 参数
 query_params = st.query_params
+
+# 检查用户登录状态
 if "user_id" in query_params:
     st.session_state.user_id = query_params["user_id"]
     st.session_state.user_email = query_params.get("email", [""])[0]
@@ -10,13 +13,22 @@ else:
     st.warning("请从 TechLife Portal 登录后访问")
     st.stop()
 
-# 在子应用开头添加
-query_params = st.query_params
+# 设置语言（关键！）
 if "lang" in query_params:
-    st.session_state.lang = query_params["lang"]
-#================================================================
+    lang_param = query_params["lang"]
+    if lang_param == "zh":
+        st.session_state.lang = "zh"
+    elif lang_param == "en":
+        st.session_state.lang = "en"
+else:
+    # 默认中文
+    st.session_state.lang = "zh"
 
-# ========== 然后继续你原有的工具代码 ==========
+# 可选：显示欢迎信息
+st.sidebar.success(f"👤 用户: {st.session_state.user_email}")
+st.sidebar.info(f"🌐 语言: {'中文' if st.session_state.lang == 'zh' else 'English'}")
+
+# ==========原有的工具代码 ==========
 # ... 原有逻辑
 
 # app.py - 免费 SaaS 版（无授权码限制）
