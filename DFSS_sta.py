@@ -1,43 +1,3 @@
-# ==================== 子应用认证与语言设置 ====================
-import streamlit as st
-
-# 获取 URL 参数
-query_params = st.query_params
-
-# 检查用户登录状态
-if "user_id" in query_params and query_params["user_id"]:
-    st.session_state.user_id = query_params["user_id"]
-    st.session_state.user_email = query_params.get("email", [""])[0] if query_params.get("email") else ""
-    
-    # 从邮箱中提取用户名（@前面的完整部分）
-    if st.session_state.user_email and "@" in st.session_state.user_email:
-        # 修复：取 @ 前面的全部字符
-        username = st.session_state.user_email.split('@')[0]
-        st.session_state.username = username
-    else:
-        st.session_state.username = st.session_state.user_id[:8] if st.session_state.user_id else "User"
-else:
-    st.warning("请从 TechLife Portal 登录后访问")
-    st.stop()
-
-# 设置语言
-if "lang" in query_params and query_params["lang"]:
-    lang_param = query_params["lang"]
-    st.session_state.lang = lang_param if lang_param in ["zh", "en"] else "zh"
-else:
-    st.session_state.lang = "zh"
-
-# 根据语言显示用户标签
-user_label = "用户" if st.session_state.lang == "zh" else "User"
-
-# 显示用户信息（侧边栏）
-with st.sidebar:
-    st.success(f"👤 {user_label}: {st.session_state.username}")
-
-# ==========原有的工具代码 ==========
-# ... 原有逻辑
-
-# app.py - 免费 SaaS 版（无授权码限制）
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -55,10 +15,79 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml.ns import qn
 import json
 import os
+from supabase import create_client  # 🆕 新增
 
 st.set_page_config(page_title="Para_Variation - 蒙特卡洛模拟", layout="wide")
 
-# ==================== 多语言文本字典 ====================
+# ================== 🆕 新增：接收门户参数和计数功能 ==================
+# 获取 URL 参数
+query_params = st.query_params
+
+if "user_id" in query_params:
+    st.session_state.user_id = query_params["user_id"]
+    st.session_state.user_email = query_params.get("email", [""])[0]
+    # 设置语言
+    if "lang" in query_params:
+        st.session_state.lang = query_params["lang"] if query_params["lang"] in ["zh", "en"] else "zh"
+    else:
+        st.session_state.lang = "zh"
+else:
+    st.warning("请从 TechLife Suite 门户登录后访问")
+    st.stop()
+
+# 🆕 Supabase 初始化（用于计数）
+@st.cache_resource
+def init_supabase():
+    try:
+        return create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
+    except Exception:
+        return None
+
+supabase = init_supabase()
+
+# 🆕 消耗免费次数函数
+def consume_trial(user_id: str, app_name: str) -> tuple:
+    """消耗一次免费次数，返回 (是否成功, 剩余次数, 错误信息)"""
+    if not supabase:
+        return True, -1, ""
+    
+    try:
+        response = supabase.table("profiles")\
+            .select("free_trials_remaining, subscription_tier")\
+            .eq("id", user_id)\
+            .execute()
+        
+        if not response.data:
+            return False, 0, "用户不存在"
+        
+        profile = response.data[0]
+        tier = profile.get("subscription_tier", "free")
+        remaining = profile.get("free_trials_remaining", 30)
+        
+        if tier == "pro":
+            return True, -1, ""
+        
+        if remaining <= 0:
+            return False, 0, "免费次数已用完（共30次），请联系管理员升级"
+        
+        supabase.table("profiles").update({
+            "free_trials_remaining": remaining - 1
+        }).eq("id", user_id).execute()
+        
+        supabase.table("usage_logs").insert({
+            "user_id": user_id,
+            "app_name": app_name,
+            "analysis_count": 1,
+            "used_at": datetime.now().isoformat()
+        }).execute()
+        
+        return True, remaining - 1, ""
+        
+    except Exception as e:
+        return False, 0, f"计数失败: {str(e)}"
+
+# ================== 原有代码开始 ==================
+# 多语言文本字典
 TEXTS = {
     "zh": {
         "title": "📊 Para_Variation - 基于蒙特卡洛模拟分析",
@@ -303,8 +332,6 @@ DIST_TRANSLATION = {
 DIST_TRANSLATION_REVERSE = {v: k for k, v in DIST_TRANSLATION.items()}
 
 # ==================== 初始化 Session State ====================
-if "lang" not in st.session_state:
-    st.session_state.lang = "zh"
 if "analyst_name" not in st.session_state:
     st.session_state.analyst_name = ""
 if "analyst_title" not in st.session_state:
@@ -340,7 +367,6 @@ def update_param_letters():
 update_param_letters()
 
 def update_default_param_names_for_lang():
-    """当语言切换时，将参数名称中的默认值（'新参数' 或 'New Parameter'）统一更新为当前语言的默认名称"""
     target_name = "新参数" if st.session_state.lang == "zh" else "New Parameter"
     for idx, row in st.session_state.params.iterrows():
         current_name = row["参数名称"]
@@ -352,7 +378,6 @@ def update_default_param_names_for_lang():
     update_param_letters()
 
 def update_dist_display_for_lang():
-    """当语言切换时，将分布下拉框的 session_state 值更新为当前语言对应的显示值"""
     for idx, row in st.session_state.params.iterrows():
         stored_dist = row["分布"]
         if st.session_state.lang == "zh":
@@ -363,7 +388,6 @@ def update_dist_display_for_lang():
         if key in st.session_state:
             st.session_state[key] = display_dist
 
-# ==================== 蒙特卡洛模拟核心函数 ====================
 def parse_limit(s: str) -> Optional[float]:
     if s is None or s.strip() == "":
         return None
@@ -776,7 +800,6 @@ def generate_word_report(raw, usl, lsl, n_sim, seed, formula, params_df, param_l
     doc_bytes.seek(0)
     return doc_bytes
 
-# ==================== 辅助函数：过滤参数表，只保留公式中使用的字母对应的行 ====================
 def filter_params_by_formula(params_df: pd.DataFrame, formula: str, param_letters: Dict[str, str]) -> Tuple[pd.DataFrame, Dict[str, str]]:
     letters_in_formula = set(re.findall(r'\b([A-Za-z])\b', formula))
     letters_in_formula = {l.upper() for l in letters_in_formula}
@@ -961,7 +984,6 @@ def main():
                 current_dist_params = {}
 
         need_expand = stored_dist_val in ["均匀分布", "对数正态分布", "威布尔分布", "三角分布"]
-        # 管理 expander 展开状态，默认展开
         expander_key = f"expander_{idx}"
         if expander_key not in st.session_state:
             st.session_state[expander_key] = True
@@ -1008,7 +1030,6 @@ def main():
                 st.pyplot(fig)
                 plt.close(fig)
 
-                # 确定按钮，点击后关闭 expander
                 if st.button(t("confirm_button"), key=f"confirm_{idx}"):
                     st.session_state[expander_key] = False
                     st.rerun()
@@ -1027,7 +1048,6 @@ def main():
     st.session_state.params = pd.DataFrame(new_params)
     update_param_letters()
 
-    # 添加行按钮
     if st.button(t("add_row"), use_container_width=True):
         default_name = "新参数" if st.session_state.lang == "zh" else "New Parameter"
         new_idx = len(st.session_state.params)
@@ -1073,6 +1093,7 @@ def main():
 
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
+        # 🆕 修改：在模拟按钮添加计数逻辑
         if st.button(t("start_sim"), type="primary", use_container_width=True):
             letters_in_formula = set(re.findall(r'\b([A-Za-z])\b', formula))
             letters_in_formula = {l.upper() for l in letters_in_formula}
@@ -1114,33 +1135,38 @@ def main():
                 st.error(t("no_valid_params"))
                 st.stop()
 
-            with st.spinner(t("start_sim")):
-                sim_res = run_monte_carlo(filtered_params_for_sim, formula, n_sim, filtered_letters_for_sim, seed)
-            if sim_res is None:
-                st.stop()
+            # 🆕 消耗免费次数
+            allowed, new_remaining, error_msg = consume_trial(st.session_state.user_id, "paravary")
+            if not allowed:
+                st.error(error_msg)
+            else:
+                with st.spinner(t("start_sim")):
+                    sim_res = run_monte_carlo(filtered_params_for_sim, formula, n_sim, filtered_letters_for_sim, seed)
+                if sim_res is None:
+                    st.stop()
 
-            with st.spinner(t("start_sim")):
-                df_contrib, contributions, param_names = sensitivity_analysis(filtered_params_for_sim, formula, n_sim, filtered_letters_for_sim, seed)
+                with st.spinner(t("start_sim")):
+                    df_contrib, contributions, param_names = sensitivity_analysis(filtered_params_for_sim, formula, n_sim, filtered_letters_for_sim, seed)
 
-            st.session_state.sim_results_raw = {
-                "results": sim_res["results"],
-                "samples": sim_res["samples"],
-                "mean": sim_res["mean"],
-                "std": sim_res["std"],
-                "max": sim_res["max"],
-                "min": sim_res["min"],
-                "hist_counts": sim_res["hist_counts"],
-                "bin_edges": sim_res["bin_edges"],
-                "bin_centers": sim_res["bin_centers"],
-                "x_pdf": sim_res["x_pdf"],
-                "pdf_theory": sim_res["pdf_theory"],
-                "param_names": sim_res["param_names"],
-                "df_contrib": df_contrib,
-                "contributions": contributions,
-                "params_df": filtered_params_for_sim,
-                "output_name": output_name,
-                "formula": formula,
-            }
+                st.session_state.sim_results_raw = {
+                    "results": sim_res["results"],
+                    "samples": sim_res["samples"],
+                    "mean": sim_res["mean"],
+                    "std": sim_res["std"],
+                    "max": sim_res["max"],
+                    "min": sim_res["min"],
+                    "hist_counts": sim_res["hist_counts"],
+                    "bin_edges": sim_res["bin_edges"],
+                    "bin_centers": sim_res["bin_centers"],
+                    "x_pdf": sim_res["x_pdf"],
+                    "pdf_theory": sim_res["pdf_theory"],
+                    "param_names": sim_res["param_names"],
+                    "df_contrib": df_contrib,
+                    "contributions": contributions,
+                    "params_df": filtered_params_for_sim,
+                    "output_name": output_name,
+                    "formula": formula,
+                }
 
     if st.session_state.sim_results_raw is not None:
         raw = st.session_state.sim_results_raw
