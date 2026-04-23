@@ -1,46 +1,38 @@
 # ==================== 子应用认证与语言设置 ====================
 import streamlit as st
-from urllib.parse import parse_qs
 
 # 获取 URL 参数
 query_params = st.query_params
 
 # 检查用户登录状态
-if "user_id" in query_params:
+if "user_id" in query_params and query_params["user_id"]:
     st.session_state.user_id = query_params["user_id"]
-    st.session_state.user_email = query_params.get("email", [""])[0]
+    st.session_state.user_email = query_params.get("email", [""])[0] if query_params.get("email") else ""
     
     # 从邮箱中提取用户名（@前面的完整部分）
-    if st.session_state.user_email:
-        # 修复：取 @ 前面的全部字符，不只是第一个
+    if st.session_state.user_email and "@" in st.session_state.user_email:
+        # 修复：取 @ 前面的全部字符
         username = st.session_state.user_email.split('@')[0]
         st.session_state.username = username
     else:
-        st.session_state.username = "User"
+        st.session_state.username = st.session_state.user_id[:8] if st.session_state.user_id else "User"
 else:
     st.warning("请从 TechLife Portal 登录后访问")
     st.stop()
 
 # 设置语言
-if "lang" in query_params:
+if "lang" in query_params and query_params["lang"]:
     lang_param = query_params["lang"]
-    if lang_param == "zh":
-        st.session_state.lang = "zh"
-    elif lang_param == "en":
-        st.session_state.lang = "en"
+    st.session_state.lang = lang_param if lang_param in ["zh", "en"] else "zh"
 else:
     st.session_state.lang = "zh"
 
 # 根据语言显示用户标签
 user_label = "用户" if st.session_state.lang == "zh" else "User"
-lang_label = "语言" if st.session_state.lang == "zh" else "Language"
-lang_value = "中文" if st.session_state.lang == "zh" else "English"
 
 # 显示用户信息（侧边栏）
 with st.sidebar:
     st.success(f"👤 {user_label}: {st.session_state.username}")
-    # 可选：显示语言（如果需要的话）
-    # st.info(f"🌐 {lang_label}: {lang_value}")
 
 # ==========原有的工具代码 ==========
 # ... 原有逻辑
