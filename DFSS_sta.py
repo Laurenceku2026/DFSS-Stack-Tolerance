@@ -31,9 +31,13 @@ if "user_id" in query_params:
     else:
         st.session_state.username = "User"
     
-    # 设置语言
+    # 设置语言（使用与主页一致的语言代码）
     if "lang" in query_params:
-        st.session_state.lang = query_params["lang"]
+        lang_param = query_params["lang"]
+        if lang_param == "zh-cn" or lang_param == "zh":
+            st.session_state.lang = "zh"
+        else:
+            st.session_state.lang = "en"
     else:
         st.session_state.lang = "zh"
     
@@ -918,27 +922,23 @@ def main():
     </style>
     """, unsafe_allow_html=True)
 
-    # 右上角语言切换
-    col_left, col_spacer, col_zh, col_en = st.columns([0.5, 0.2, 0.15, 0.15])
-    with col_zh:
-        st.markdown('<div class="lang-btn-wrap">', unsafe_allow_html=True)
+    # 标题区域（不使用列布局，改用 st.columns 在右上角放置语言切换按钮）
+    header_col1, header_col2 = st.columns([4, 1])
+    with header_col1:
+        st.markdown(f'<div class="main-title">{t("title")}</div>', unsafe_allow_html=True)
+        st.markdown(t("subtitle"))
+    with header_col2:
+        # 语言切换按钮垂直排列
         if st.button("中文", key="lang_zh", use_container_width=True):
             st.session_state.lang = "zh"
             update_default_param_names_for_lang()
             update_dist_display_for_lang()
             st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
-    with col_en:
-        st.markdown('<div class="lang-btn-wrap">', unsafe_allow_html=True)
         if st.button("English", key="lang_en", use_container_width=True):
             st.session_state.lang = "en"
             update_default_param_names_for_lang()
             update_dist_display_for_lang()
             st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
-
-    st.markdown(f'<div class="main-title">{t("title")}</div>', unsafe_allow_html=True)
-    st.markdown(t("subtitle"))
 
     # 侧边栏（原有内容）
     with st.sidebar:
