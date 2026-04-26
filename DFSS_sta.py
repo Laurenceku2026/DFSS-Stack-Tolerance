@@ -22,8 +22,19 @@ st.set_page_config(page_title="Para_Variation - 蒙特卡洛模拟", layout="wid
 query_params = st.query_params
 
 if "user_id" in query_params:
-    st.session_state.user_id = query_params["user_id"]
-    st.session_state.user_email = query_params["email"]
+    # 获取 user_id
+    user_id_val = query_params["user_id"]
+    if isinstance(user_id_val, list):
+        st.session_state.user_id = user_id_val[0]
+    else:
+        st.session_state.user_id = user_id_val
+    
+    # 获取 email
+    email_val = query_params.get("email", "")
+    if isinstance(email_val, list):
+        st.session_state.user_email = email_val[0] if email_val else ""
+    else:
+        st.session_state.user_email = email_val
     
     # 从邮箱提取用户名
     if st.session_state.user_email and "@" in st.session_state.user_email:
@@ -31,24 +42,26 @@ if "user_id" in query_params:
     else:
         st.session_state.username = "User"
     
-    # 设置语言（使用与主页一致的语言代码）
+    # 设置语言
     if "lang" in query_params:
-        lang_param = query_params["lang"]
-        if lang_param == "zh-cn" or lang_param == "zh":
-            st.session_state.lang = "zh"
-        else:
-            st.session_state.lang = "en"
+        lang_val = query_params["lang"]
+        if isinstance(lang_val, list):
+            lang_val = lang_val[0]
+        st.session_state.lang = lang_val if lang_val in ["zh", "en"] else "zh"
     else:
         st.session_state.lang = "zh"
     
-    # 接收剩余次数
+    # 接收剩余次数（仅用于初始显示）
     if "trials_left" in query_params:
-        st.session_state.trials_left = int(query_params["trials_left"])
+        trials_val = query_params["trials_left"]
+        if isinstance(trials_val, list):
+            trials_val = trials_val[0]
+        st.session_state.trials_left = int(trials_val)
 else:
     st.warning("请从 TechLife Suite 门户登录后访问")
     st.stop()
 
-# ================== Supabase 配置（使用 HTTP 请求）==================
+# ================== Supabase 配置 ==================
 SUPABASE_URL = st.secrets["SUPABASE_URL"]
 SUPABASE_KEY = st.secrets["SUPABASE_SERVICE_ROLE_KEY"]
 
@@ -58,11 +71,11 @@ HEADERS = {
     "Content-Type": "application/json"
 }
 
-def supabase_get(table: str, user_id: str = None, id_field: str = "id"):
+def supabase_get(table: str, user_id: str = None):
     """GET 请求"""
     url = f"{SUPABASE_URL}/rest/v1/{table}"
     if user_id:
-        url += f"?{id_field}=eq.{user_id}"
+        url += f"?id=eq.{user_id}"
     response = requests.get(url, headers=HEADERS)
     return response
 
@@ -78,23 +91,23 @@ def supabase_post(table: str, data: dict):
     response = requests.post(url, headers=HEADERS, json=data)
     return response
 
-# ================== 获取用户剩余次数 ==================
 def get_user_remaining_trials(user_id: str) -> int:
-    """获取用户剩余次数"""
+    """从数据库实时获取剩余次数"""
     try:
         response = supabase_get("profiles", user_id)
         if response.status_code == 200 and response.json():
             remaining = response.json()[0].get("free_trials_remaining", 30)
+            tier = response.json()[0].get("subscription_tier", "free")
+            if tier == "pro":
+                return -1
             return remaining
     except Exception:
         pass
     return st.session_state.get("trials_left", 30)
 
-# ================== 消耗免费次数 ==================
 def consume_trial(user_id: str, app_name: str) -> tuple:
     """消耗一次免费次数，返回 (是否成功, 剩余次数, 错误信息)"""
     try:
-        # 获取当前剩余次数
         resp = supabase_get("profiles", user_id)
         if resp.status_code != 200 or not resp.json():
             return False, 0, "用户不存在"
@@ -102,21 +115,17 @@ def consume_trial(user_id: str, app_name: str) -> tuple:
         current = resp.json()[0].get("free_trials_remaining", 30)
         tier = resp.json()[0].get("subscription_tier", "free")
         
-        # 专业版无限使用
         if tier == "pro":
             return True, -1, ""
         
         if current <= 0:
             return False, 0, "免费次数已用完（共30次），请联系管理员升级"
         
-        # 更新剩余次数
         patch_resp = supabase_patch("profiles", user_id, {"free_trials_remaining": current - 1})
         
-        # 200 和 204 都是成功状态码
         if patch_resp.status_code not in [200, 204]:
             return False, 0, f"更新失败: {patch_resp.text}"
         
-        # 记录使用日志
         supabase_post("usage_logs", {
             "user_id": user_id,
             "app_name": app_name,
@@ -129,16 +138,22 @@ def consume_trial(user_id: str, app_name: str) -> tuple:
     except Exception as e:
         return False, 0, f"计数失败: {str(e)}"
 
-# ================== 侧边栏（显示用户信息和剩余次数）==================
+# ================== 侧边栏（显示用户信息和实时剩余次数）==================
 with st.sidebar:
     st.markdown(f"### 👤 {st.session_state.username}")
     remaining = get_user_remaining_trials(st.session_state.user_id)
+    lang = st.session_state.lang
     if remaining == -1:
-        st.info("🎫 剩余免费次数: ∞ (专业版)")
+        if lang == "zh":
+            st.info("🎫 剩余免费次数: ∞ (专业版)")
+        else:
+            st.info("🎫 Remaining Trials: ∞ (Pro)")
     else:
-        st.info(f"🎫 剩余免费次数: {remaining}")
+        if lang == "zh":
+            st.info(f"🎫 剩余免费次数: {remaining}")
+        else:
+            st.info(f"🎫 Remaining Trials: {remaining}")
     st.markdown("---")
-    # 原有的侧边栏内容将在后面添加
 
 # ================== 多语言文本字典 ==================
 TEXTS = {
@@ -922,25 +937,29 @@ def main():
     </style>
     """, unsafe_allow_html=True)
 
-    # 标题区域（不使用列布局，改用 st.columns 在右上角放置语言切换按钮）
-    header_col1, header_col2 = st.columns([4, 1])
-    with header_col1:
-        st.markdown(f'<div class="main-title">{t("title")}</div>', unsafe_allow_html=True)
-        st.markdown(t("subtitle"))
-    with header_col2:
-        # 语言切换按钮垂直排列
+    # 右上角语言切换
+    col_left, col_spacer, col_zh, col_en = st.columns([0.5, 0.2, 0.15, 0.15])
+    with col_zh:
+        st.markdown('<div class="lang-btn-wrap">', unsafe_allow_html=True)
         if st.button("中文", key="lang_zh", use_container_width=True):
             st.session_state.lang = "zh"
             update_default_param_names_for_lang()
             update_dist_display_for_lang()
             st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
+    with col_en:
+        st.markdown('<div class="lang-btn-wrap">', unsafe_allow_html=True)
         if st.button("English", key="lang_en", use_container_width=True):
             st.session_state.lang = "en"
             update_default_param_names_for_lang()
             update_dist_display_for_lang()
             st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
 
-    # 侧边栏（原有内容）
+    st.markdown(f'<div class="main-title">{t("title")}</div>', unsafe_allow_html=True)
+    st.markdown(t("subtitle"))
+
+    # 侧边栏（原有内容 + 用户信息已在上面添加）
     with st.sidebar:
         st.markdown(f"## {t('sim_settings')}")
         n_sim = st.number_input(t("trail_number"), min_value=100, max_value=100000, value=1000, step=100)
@@ -1255,7 +1274,7 @@ def main():
                 st.markdown(f"""
                 <table class="ppm-table">
                     <tr><th>CPK</th><th>Failure All</th><th>Failure Up</th><th>Failure Dn</th></tr>
-                    <tr><td style="text-align:center">{fmt(cpk)}</td><td style="text-align:center">{fmt(failures_all)}</td><td style="text-align:center">{fmt(failures_up)}</td><td style="text-align:center">{fmt(failures_dn)}</td></tr>
+                    <tr><td style="text-align:center">{fmt(cpk)}</td><td style="text-align:center">{fmt(failures_all)}</td><td style="text-align:center">{fmt(failures_up)}</td><td style="text-align:center">{fmt(failures_dn)}</td></table>
                 </table>
                 """, unsafe_allow_html=True)
             else:
