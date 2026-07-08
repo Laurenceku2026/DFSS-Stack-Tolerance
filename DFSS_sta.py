@@ -42,14 +42,15 @@ if "user_id" in query_params:
     else:
         st.session_state.username = "User"
     
-    # 设置语言
-    if "lang" in query_params:
-        lang_val = query_params["lang"]
-        if isinstance(lang_val, list):
-            lang_val = lang_val[0]
-        st.session_state.lang = lang_val if lang_val in ["zh", "en"] else "zh"
-    else:
-        st.session_state.lang = "zh"
+    # 设置语言（只在首次进入时读取 query 参数，避免用户切换后被 URL 再次覆盖）
+    if "lang" not in st.session_state:
+        if "lang" in query_params:
+            lang_val = query_params["lang"]
+            if isinstance(lang_val, list):
+                lang_val = lang_val[0]
+            st.session_state.lang = lang_val if lang_val in ["zh", "en"] else "zh"
+        else:
+            st.session_state.lang = "zh"
     
     # 接收剩余次数（仅用于初始显示）
     if "trials_left" in query_params:
