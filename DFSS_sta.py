@@ -16,6 +16,16 @@ from docx.oxml.ns import qn
 import json
 import os
 
+from portal_enterprise_ui import (
+    apply_portal_token,
+    ensure_enterprise_session_defaults,
+    is_enterprise_user,
+    load_enterprise_branding,
+    qp_first,
+    render_enterprise_main_brand,
+    render_enterprise_sidebar_brand,
+)
+
 st.set_page_config(page_title="Para_Variation - 蒙特卡洛模拟", layout="wide")
 
 # ================== 接收门户参数 ==================
@@ -30,14 +40,19 @@ def set_app_language(lang: str):
     st.query_params["lang"] = lang
 
 
-if "user_id" in query_params:
+ensure_enterprise_session_defaults()
+
+if "user_id" in query_params or qp_first(query_params, "token"):
     # 获取 user_id
-    user_id_val = query_params["user_id"]
-    if isinstance(user_id_val, list):
-        st.session_state.user_id = user_id_val[0]
-    else:
-        st.session_state.user_id = user_id_val
-    
+    user_id_val = query_params.get("user_id")
+    if user_id_val is not None:
+        if isinstance(user_id_val, list):
+            st.session_state.user_id = user_id_val[0]
+        else:
+            st.session_state.user_id = user_id_val
+
+    apply_portal_token(query_params, set_app_language=set_app_language)
+
     # 获取 email
     email_val = query_params.get("email", "")
     if isinstance(email_val, list):
@@ -67,6 +82,10 @@ if "user_id" in query_params:
         if isinstance(trials_val, list):
             trials_val = trials_val[0]
         st.session_state.trials_left = int(trials_val)
+
+    if not st.session_state.get("user_id"):
+        st.warning("请从 TechLife Suite 门户登录后访问")
+        st.stop()
 else:
     st.warning("请从 TechLife Suite 门户登录后访问")
     st.stop()
@@ -80,6 +99,8 @@ HEADERS = {
     "Authorization": f"Bearer {SUPABASE_KEY}",
     "Content-Type": "application/json"
 }
+
+load_enterprise_branding(SUPABASE_URL, HEADERS)
 
 def supabase_get(table: str, user_id: str = None):
     """GET 请求"""
@@ -150,19 +171,21 @@ def consume_trial(user_id: str, app_name: str) -> tuple:
 
 # ================== 侧边栏（显示用户信息和实时剩余次数）==================
 with st.sidebar:
+    render_enterprise_sidebar_brand()
     st.markdown(f"### 👤 {st.session_state.username}")
-    remaining = get_user_remaining_trials(st.session_state.user_id)
-    lang = st.session_state.lang
-    if remaining == -1:
-        if lang == "zh":
-            st.info("🎫 剩余免费次数: ∞ (专业版)")
+    if not is_enterprise_user():
+        remaining = get_user_remaining_trials(st.session_state.user_id)
+        lang = st.session_state.lang
+        if remaining == -1:
+            if lang == "zh":
+                st.info("🎫 剩余免费次数: ∞ (专业版)")
+            else:
+                st.info("🎫 Remaining Trials: ∞ (Pro)")
         else:
-            st.info("🎫 Remaining Trials: ∞ (Pro)")
-    else:
-        if lang == "zh":
-            st.info(f"🎫 剩余免费次数: {remaining}")
-        else:
-            st.info(f"🎫 Remaining Trials: {remaining}")
+            if lang == "zh":
+                st.info(f"🎫 剩余免费次数: {remaining}")
+            else:
+                st.info(f"🎫 Remaining Trials: {remaining}")
     st.markdown("---")
 
 # ================== 多语言文本字典 ==================
@@ -966,6 +989,7 @@ def main():
             st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
 
+    render_enterprise_main_brand()
     st.markdown(f'<div class="main-title">{t("title")}</div>', unsafe_allow_html=True)
     st.markdown(t("subtitle"))
 
@@ -997,8 +1021,9 @@ def main():
         st.session_state.analyst_title = analyst_title
 
         st.markdown("---")
-        st.markdown(f"**{t('contact')}**")
-        st.markdown(t("email"))
+        if not is_enterprise_user():
+            st.markdown(f"**{t('contact')}**")
+            st.markdown(t("email"))
 
     # 参数输入表格
     st.markdown(f'<div class="section-header">{t("param_input")}</div>', unsafe_allow_html=True)
